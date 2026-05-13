@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+</head>
+<body style="margin:0; padding:0; font-family: Arial, sans-serif; background-color:#f4f6f8;">
+
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:20px;">
+    <tr>
+      <td align="center">
+
+        <table width="500" cellpadding="0" cellspacing="0" style="background:#ffffff; border-radius:10px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+
+          <!-- Header -->
+          <tr>
+            <td style="background:#4CAF50; color:white; padding:20px; text-align:center;">
+              <h2 style="margin:0;">🏥 HealthifAI</h2>
+              <p style="margin:5px 0 0;">Appointment Confirmation</p>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:25px; color:#333;">
+
+              <h3 style="margin-top:0;">Hello {{name}},</h3>
+
+              <p>
+                This is a reminder for your appointment with
+                <strong>Dr. {{doctor_name}}</strong>.
+              </p>
+
+              <table width="100%" style="margin:20px 0; background:#f9f9f9; border-radius:8px;">
+                <tr>
+                  <td style="padding:10px;"><strong>Date:</strong></td>
+                  <td style="padding:10px;">{{date}}</td>
+                </tr>
+                <tr>
+                  <td style="padding:10px;"><strong>Time:</strong></td>
+                  <td style="padding:10px;">{{time}}</td>
+                </tr>
+              </table>
+
+              <p>Please confirm your availability:</p>
+
+              <!-- Buttons -->
+              <div style="text-align:center; margin:25px 0;">
+                <a href="{{confirm_link}}"
+                   style="background:#4CAF50; color:white; padding:12px 20px; text-decoration:none; border-radius:6px; margin-right:10px;">
+                  ✅ Confirm
+                </a>
+
+                <a href="{{cancel_link}}"
+                   style="background:#f44336; color:white; padding:12px 20px; text-decoration:none; border-radius:6px;">
+                  ❌ Cancel
+                </a>
+              </div>
+
+              <p style="font-size:14px; color:#777;">
+                If you have any questions, feel free to contact us.
+              </p>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background:#f4f6f8; padding:15px; text-align:center; font-size:12px; color:#888;">
+              © 2026 HealthifAI. All rights reserved.
+            </td>
+          </tr>
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>
