@@ -6,7 +6,7 @@ from database import SessionLocal
 from sqlalchemy.orm import Session
 from typing import Annotated, Optional, List
 from fastapi import APIRouter, Depends, HTTPException
-from models import Users, Hosts, ChatThread, ChatMessage
+from models import Users, ChatThread, ChatMessage
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from AI.user_config import get_user_sensitive_tools, update_user_sensitive_tools #type:ignore
 from utils.dependencies import db_dependency

@@ -7,7 +7,7 @@ async def change_password(request, requester, db):
     
     if role == "user" or role == "admin":
         person = db.query(Users).filter(Users.id == requester.get("id")).first()
-    elif role == "doctor" or role == "host":
+    elif role == "doctor":
         person = db.query(Doctors).filter(Doctors.id == requester.get("id")).first()
     elif role == "hospital":
         person = db.query(Hospitals).filter(Hospitals.id == requester.get("id")).first()

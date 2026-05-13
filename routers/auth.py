@@ -72,19 +72,19 @@ db_dependency = Annotated[Session, Depends(get_db)]
 
 def authenticate_user(email : str, password : str, db : Session):
     user = db.query(Users).filter(Users.email == email).first()
-    if not user or user.role == "host":
+    if not user:
         return None
     if not bcrypt_context.verify(password, user.hashed_password):
         return None
     return user
 
 def authenticate_doctor(email : str, password : str, db : Session):
-    host = db.query(Doctors).filter(Doctors.email == email).first()
-    if not host:
+    doctor = db.query(Doctors).filter(Doctors.email == email).first()
+    if not doctor:
         return None
-    if not bcrypt_context.verify(password, host.hashed_password):
+    if not bcrypt_context.verify(password, doctor.hashed_password):
         return None
-    return host
+    return doctor
 
 def authenticate_hospital(email : str, password : str, db : Session):
     hospital = db.query(Hospitals).filter(Hospitals.email == email).first()
@@ -146,7 +146,7 @@ async def login(form_data : OAuth2PasswordRequestForm = Depends(), db : Session 
             "token_type" : "bearer",
             "type" : "doctor",
             "id" : doctor.id,
-            "role" : "host",
+            "role" : "doctor",
             "name" : doctor.name,
             "email" : doctor.email,
             "google_profile_pic" : doctor.google_profile_pic,
@@ -161,7 +161,7 @@ async def login(form_data : OAuth2PasswordRequestForm = Depends(), db : Session 
             "token_type" : "bearer",
             "type" : "hospital",
             "id" : hospital.id,
-            "role" : "host",
+            "role" : "hospital",
             "name" : hospital.name,
             "email" : hospital.email,
             "google_profile_pic" : hospital.google_profile_pic,

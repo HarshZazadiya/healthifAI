@@ -51,7 +51,7 @@ async def cancel_appointment(db, appointment_id, user_id, role):
 
     if role == "user" and appointment.user_id != user_id:
         raise ValueError("User can only cancel their own appointments")
-    elif role == "host" and appointment.doctor_id != user_id:
+    elif role == "doctor" and appointment.doctor_id != user_id:
         raise ValueError("Doctor can only cancel their own appointments")
     elif role == "hospital":
         hospital = db.query(Hospitals).filter(Hospitals.id == user_id).first()
@@ -72,7 +72,7 @@ async def complete_appointment(db, appointment_id, user_id, role):
 
     if role == "user" and appointment.user_id != user_id:
         raise ValueError("User can only complete their own appointments")
-    elif role == "host" and appointment.doctor_id != user_id:
+    elif role == "doctor" and appointment.doctor_id != user_id:
         raise ValueError("Doctor can only complete their own appointments")
     elif role == "hospital":
         hospital = db.query(Hospitals).filter(Hospitals.id == user_id).first()
