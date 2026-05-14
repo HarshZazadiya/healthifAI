@@ -561,6 +561,9 @@ async def assign_doctor(doctor_id : int, user : user_dependency, db : db_depende
     )
     db.add(case)
 
+    # update case count
+    hospital.cases += 1
+
     db.commit()
     db.refresh(assigned)
     db.refresh(case)

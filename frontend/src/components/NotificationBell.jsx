@@ -40,7 +40,7 @@ const NotificationBell = () => {
     <div className="relative">
       <button onClick={() => setShow(!show)} className="relative">
         🔔
-        {unreadCount > 0 && <span className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full text-xs w-5 h-5 flex items-center justify-center">{unreadCount}</span>}
+        {unreadCount > 0 && <span className="absolute -top-2 -right-2 bg-red-500 text-black rounded-full text-xs w-5 h-5 flex items-center justify-center">{unreadCount}</span>}
       </button>
       {show && (
         <div className="absolute right-0 mt-2 w-80 bg-white border rounded shadow-lg z-50 max-h-96 overflow-auto">
