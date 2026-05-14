@@ -28,8 +28,16 @@ BASE_URL = os.getenv("BASE_URL")
 # =====================================================================================
 
 class Symptom_request(BaseModel):
-    symptom : str = Field(min_length = 1, max_length = 100)
-    severity : int = Field(max_digits = 2, le = 10, ge = 0)
+    symptom: str = Field(min_length=1, max_length=100)
+    severity: int = Field(ge=0, le=10)
+
+    @field_validator('severity')
+    @classmethod
+    def validate_severity_digits(cls, v: int) -> int:
+        """Ensure severity is between 0 and 99 (2 digits max)."""
+        if v < 0 or v > 99:
+            raise ValueError("Severity must be a positive integer with at most 2 digits")
+        return v
 
 class AppointmentRequest(BaseModel):
     doctor_id : int = Field(gt = 0)

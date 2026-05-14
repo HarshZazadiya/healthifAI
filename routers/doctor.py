@@ -279,11 +279,11 @@ async def get_assigned_users(doctor : doctor_dependency, db : db_dependency, use
     cases = db.query(Cases).filter(Cases.user_id.in_(assigned_user_ids)).all()
     if cases is None:
         raise HTTPException(status_code = 404, detail = "No cases found")
-    case_map = {case.id : case for case in cases}
+    case_map = {case.user_id : case for case in cases}
     
     for assigned_user in assigned_users:
         user = user_map.get(assigned_user.user_id)
-        case = case_map.get(assigned_user.case_id)
+        case = case_map.get(assigned_user.user_id)
         
         data.append({
             "id" : assigned_user.id,

@@ -97,21 +97,22 @@ async def add_document(db: Session, uploader_id: int, uploader_role: str, file: 
             db.rollback()
             raise HTTPException(status_code = 400, detail = "You cannot upload documents")
     
-    db.commit()
-    db.refresh(document)
-    
-    if case_id:
-        db.refresh(case)
-    
     # Save the actual file
     try:
-        path_to_save = os.path.join(DOCUMENTS_DIR, "documents", unique_filename)
+        path_to_save = os.path.join(DOCUMENTS_DIR, unique_filename)
         with open(path_to_save, "wb") as f:
             content = await file.read()
             f.write(content)
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code = 500, detail = f"Failed to save file: {str(e)}")
+    
+    db.commit()
+    db.refresh(document)
+    
+    if case_id:
+        db.refresh(case)
+
     
     return {
         "id" : document.id,
