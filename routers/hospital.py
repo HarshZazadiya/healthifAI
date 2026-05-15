@@ -484,11 +484,12 @@ async def change_availibility_of_doctor(
 ):
     result = await set_availibility_for_doctor(db, doctor_id, availibility)
     users = db.query(AssignedDoctors).filter(AssignedDoctors.doctor_id == doctor_id).all()
+    doctor = db.query(Doctors).filter(Doctors.id == doctor_id).first()
     for user in users:
         background_tasks.add_task(
             create_notification,
             db,
-            message = f"Your availibility has been changed to {availibility} by hospital {hospital.name}",
+            message = f"Your doctor {doctor.name} availibility has been changed to {availibility} by hospital {hospital.name}",
             recipient_id = user.user_id,
             recipient_role = "user"
         )

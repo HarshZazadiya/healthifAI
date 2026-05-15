@@ -11,6 +11,7 @@ from utils.dependencies import user_dependency, db_dependency
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from utils.distance_user_hospital import find_n_nearby_doctors
 from models import Hospitals, Users, Appointments, Doctors, Symptoms, AssignedDoctors, UserPayments, Cases, Documents
+from sqlalchemy import any_, text
 
 # TODO : Add pagination, add
 router = APIRouter(
@@ -47,7 +48,9 @@ class AppointmentRequest(BaseModel):
     @classmethod
     def check_future_date(cls, v: datetime) -> datetime:
         # Ensure the datetime is not in the past
-        if v < datetime.now():
+        from datetime import datetime, timezone
+
+        if v < datetime.now(timezone.utc):
             raise ValueError('Event time must be in the future')
         return v
 
@@ -156,7 +159,9 @@ async def get_my_cases(
                     "user" : [doc_map.get(doc_id) for doc_id in (case.user_doc_ids or []) if doc_map.get(doc_id)],
                     "doctor" : [doc_map.get(doc_id) for doc_id in (case.doctor_doc_ids or []) if doc_map.get(doc_id)]
                 },
-                "symptoms" : case_symptoms 
+                "symptoms" : case_symptoms ,
+                "cost" : case.cost,
+                "diesease" : case.diesease
             })
     else:
         case = query.filter(Cases.id == case_id).first()
@@ -201,7 +206,9 @@ async def get_my_cases(
                 "user" : [doc_map.get(doc_id) for doc_id in (case.user_doc_ids or []) if doc_map.get(doc_id)],
                 "doctor" : [doc_map.get(doc_id) for doc_id in (case.doctor_doc_ids or []) if doc_map.get(doc_id)]
             },
-            "symptoms" : case_symptoms
+            "symptoms" : case_symptoms,
+            "cost" : case.cost,
+            "diesease" : case.diesease
         }]
     
     return {
@@ -288,13 +295,13 @@ async def see_all_doctors(
     hospital_ids = [h.id for h in hospitals]
     
     # Get all doctors from these hospitals
-    doctor_query = doctor_query.filter(Doctors.hospital_id.in_(hospital_ids), Doctors.is_active == True)
+    doctor_query = doctor_query.filter(Doctors.hospital_id.in_(hospital_ids))
     
     # Filter by doctor name if provided
     if doctor_name:
-        doctor_query = doctor_query.filter(Doctors.name.ilike(doctor_name), Doctors.is_active == True)
+        doctor_query = doctor_query.filter(Doctors.name.ilike(doctor_name))
     
-    doctors = doctor_query.all
+    doctors = doctor_query.all()
     
     # Group doctors by hospital_id
     doctors_by_hospital = {}
@@ -389,6 +396,7 @@ async def my_doctors(
             "doctor_id" : doctor.id,
             "name" : doctor.name,
             "email" : doctor.email,
+            "phone_number" : doctor.phone_number,
             "id" : case.id if case else None,
             "case_id" : case.case_id if case else None,
             "diesease" : case.diesease if case else None,
@@ -440,25 +448,48 @@ async def get_user_location(user : user_dependency, db : db_dependency):
         "has_location" : user.lat is not None and user.lon is not None
     }
 
-@router.get("/transactions/", status_code = 200)
-async def show_all_transactions(user : user_dependency, db : db_dependency, type : Optional[str] = None, date : Optional[date] = None, page : int = Query(1, ge = 1), limit : int = Query(20, ge = 1, le = 100)):
-    query = db.query(UserPayments).filter(UserPayments.user_id == user.id, UserPayments.role == "user")
+from datetime import date, datetime, time
+from typing import Optional
+from fastapi import Query, HTTPException
+
+@router.get("/transactions/", status_code=200)
+async def show_all_transactions(
+    user: user_dependency, 
+    db: db_dependency, 
+    type: Optional[str] = None, 
+    date: Optional[date] = None, 
+    page: int = Query(1, ge=1), 
+    limit: int = Query(20, ge=1, le=100)
+):
+    query = db.query(UserPayments).filter(
+        UserPayments.user_id == user.id, 
+        UserPayments.role == "user"
+    )
 
     if type:
-        query = query.filter(UserPayments.type == type)
+        # Convert input to uppercase to match database format
+        query = query.filter(UserPayments.type == type.upper())
+
     if date:
         start_of_day = datetime.combine(date, datetime.min.time())
         end_of_day = datetime.combine(date, datetime.max.time())
-        query = query.filter(UserPayments.date >= start_of_day, UserPayments.date <= end_of_day)
+        query = query.filter(
+            UserPayments.date >= start_of_day, 
+            UserPayments.date <= end_of_day
+        )
 
-    transactions = query.offset((page - 1) * limit).limit(limit).all()
+    transactions = query.order_by(UserPayments.date.desc())\
+                       .offset((page - 1) * limit)\
+                       .limit(limit)\
+                       .all()
+    
     return [
         {
-            "id" : transaction.id,
-            "date" : transaction.date.isoformat(),
-            "amount" : transaction.amount,
-            "type" : transaction.type,
-            "note" : transaction.note
+            "id": transaction.id,
+            "date": transaction.date.isoformat() if transaction.date else None,
+            "amount": transaction.amount,
+            "type": transaction.type,
+            "note": transaction.note
         }
         for transaction in transactions
     ]
@@ -587,46 +618,56 @@ async def assign_doctor(doctor_id : int, user : user_dependency, db : db_depende
         "user_id" : user.id
     }
 
-@router.post("/appointment", status_code = 201)
-async def book_appointment(request : AppointmentRequest, user : user_dependency, db : db_dependency):
+@router.post("/appointment", status_code=201)
+async def book_appointment(request: AppointmentRequest, user: user_dependency, db: db_dependency):
     case = db.query(Cases).filter(Cases.doctor_id == request.doctor_id, Cases.user_id == user.id, Cases.status == "OPEN").first()
     if not case:
         raise HTTPException(status_code = 404, detail = "Case not found")
-    
-    new_appointment = Appointments(
-        user_id = user.id, 
-        doctor_id = request.doctor_id, 
-        case_id = case.id,
-        date = request.date.isoformat(),
-        status = "PENDING"
-    )
-    # update case
-    case.last_updated = datetime.now()
-    # handle payment
+
     doctor = db.query(Doctors).filter(Doctors.id == request.doctor_id, Doctors.is_active == True).first()
     if not doctor:
         raise HTTPException(status_code = 404, detail = "Doctor not found")
-    if doctor.availability == False : 
+    if not doctor.availability:
         raise HTTPException(status_code = 400, detail = "Doctor is not available")
-    result = await handle_payment(db, user.id, user.role, request.doctor_id, "doctor", doctor.fees, note = f"Appointment Fees of doctor {doctor.name}")
-    
+
+    doctor_name = doctor.name
+    doctor_appointment_fees = doctor.appointment_fees
+    doctor_fees = doctor.fees  
+    new_appointment = Appointments(
+        user_id = user.id,
+        doctor_id = request.doctor_id,
+        case_id = case.id,
+        date = request.date,
+        status = "PENDING"
+    )
+
+    case.last_updated = datetime.now()
+
+    result = await handle_payment(
+        db,
+        user.id,
+        user.role,
+        request.doctor_id,
+        "doctor",
+        doctor_fees,
+        note = f"Appointment Fees of doctor {doctor_name}"
+    )
+
     db.add(new_appointment)
     db.commit()
     db.refresh(new_appointment)
 
-    # TODO : add feature to call user before appointment to confirm it, then send doctor the notification
-    # send notification to doctor
     await create_notification(
         db,
         message = f"You have a new appointment request from user {user.name}",
         recipient_id = request.doctor_id,
         recipient_role = "doctor"
     )
-    
+
     return {
-        "note" : f"Appointment Booked for doctor {doctor.name} Successfully",
+        "note" : f"Appointment Booked for doctor {doctor_name} Successfully",
         "transaction_id" : result["transaction_id"] if result else None,
-        "amount" : doctor.appointment_fees,
+        "amount" : doctor_appointment_fees,
         "message" : "You will get a confirmation mail from our side before 24 hours of appointment. Please keep checking your email for updates."
     }
 
@@ -687,6 +728,8 @@ async def add_symptoms_to_case(case_id : int, user : user_dependency, db : db_de
         symptom = db.query(Symptoms).filter(Symptoms.id == symptom_id, Symptoms.user_id == user.id).first()
         if not symptom:
             raise HTTPException(status_code = 404, detail = f"Symptom not found for symptom : {symptom_id}")
+        if symptom_id in case.symptom_ids:
+            raise HTTPException(status_code = 400, detail = f"Symptom with id {symptom_id} is already added to the case")
         case.symptom_ids = case.symptom_ids + [symptom_id] if case.symptom_ids else [symptom_id]
 
     case.last_updated = datetime.now()
@@ -735,7 +778,7 @@ async def add_documents_to_case(case_id : int, user : user_dependency, db : db_d
         "doctor_document_ids" : case.doctor_doc_ids
     }
 
-@router.put("/cases/{case_id}", status_code = 200)
+@router.put("/cases/close/{case_id}", status_code = 200)
 async def close_case(case_id : int, user : user_dependency, db : db_dependency, background_tasks : BackgroundTasks = BackgroundTasks()):
     case = db.query(Cases).filter(Cases.id == case_id, Cases.user_id == user.id, Cases.status != "CLOSED").first()
     if not case:
@@ -880,13 +923,14 @@ async def change_transaction_note(transaction_id : int, note : str, user : user_
 
 @router.delete("/cases/symptom/{case_id}/{symptom_id}")
 async def remove_symptom_from_case(case_id : int, symptom_id : int, user : user_dependency, db : db_dependency):
-    case = db.query(Cases).filter(Cases.id == case_id, Cases.user_id == user.id, case.status == "OPEN").first()
+    case = db.query(Cases).filter(Cases.id == case_id, Cases.user_id == user.id, Cases.status == "OPEN").first()
     if not case:
         raise HTTPException(404, "Case not found")
     
     case.last_updated = datetime.now()
     if case.symptom_ids and symptom_id in case.symptom_ids:
-        case.symptom_ids.remove(symptom_id)
+        # case.symptom_ids.remove(symptom_id)
+        case.symptom_ids = [i for i in case.symptom_ids if i != symptom_id]
         db.commit()
     
     return {
@@ -895,12 +939,12 @@ async def remove_symptom_from_case(case_id : int, symptom_id : int, user : user_
 
 @router.delete("/cases/document/{case_id}/{document_id}")
 async def remove_document_from_case(case_id : int, document_id : int, user : user_dependency, db : db_dependency, background_tasks : BackgroundTasks = BackgroundTasks()):
-    case = db.query(Cases).filter(Cases.id == case_id, Cases.user_id == user.id, case.status == "OPEN").first()
+    case = db.query(Cases).filter(Cases.id == case_id, Cases.user_id == user.id, Cases.status == "OPEN").first()
     if not case:
         raise HTTPException(404, "Case not found")
     
-    if case.document_ids and document_id in case.document_ids:
-        case.document_ids = [id for id in case.document_ids if id != document_id]
+    if case.user_doc_ids and document_id in case.user_doc_ids:
+        case.user_doc_ids = [id for id in case.user_doc_ids if id != document_id]
         case.last_updated = datetime.now()
         db.commit()
         background_tasks.add_task(
@@ -913,44 +957,65 @@ async def remove_document_from_case(case_id : int, document_id : int, user : use
     return {
         "note" : f"Document {document_id} removed from case"
     }
-
-@router.delete("/symptom/{symptom_id}", status_code = 200)
-async def delete_symptom(symptom_id : int, user : user_dependency, db : db_dependency, force : bool = False, background_tasks : BackgroundTasks = BackgroundTasks()):
-    symptom = db.query(Symptoms).filter(Symptoms.id == symptom_id, Symptoms.user_id == user.id, symptom.status == "OPEN").first()
+    
+@router.delete("/symptom/{symptom_id}", status_code=200)
+async def delete_symptom(
+    symptom_id: int, 
+    user: user_dependency, 
+    db: db_dependency, 
+    force: bool = False, 
+    background_tasks: BackgroundTasks = BackgroundTasks()
+):
+    # Find the symptom
+    symptom = db.query(Symptoms).filter(
+        Symptoms.id == symptom_id, 
+        Symptoms.user_id == user.id
+    ).first()
     if not symptom:
-        raise HTTPException(status_code = 404, detail = "Symptom not found")
+        raise HTTPException(status_code=404, detail="Symptom not found")
 
-    # Get cases that contain this symptom
-    cases = db.query(Cases).filter(Cases.symptom_ids.contains(symptom_id)).all()
+    # FIXED: Query cases where symptom_id exists in the INTEGER[] array
+    cases = db.query(Cases).filter(
+        any_(Cases.symptom_ids) == symptom_id
+    ).all()
     
     if cases and not force:
         case_ids = [c.case_id for c in cases]
-        raise HTTPException(status_code = 400, detail = f"Symptom is attached to {len(cases)} case(s): {case_ids}.")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Symptom is attached to {len(cases)} case(s): {case_ids}. Use ?force=true to delete anyway."
+        )
     
-    # Remove symptom from each case
+    # Remove symptom from each case's INTEGER[] array
     for case in cases:
         if case.symptom_ids:
-            case.symptom_ids = [sid for sid in case.symptom_ids if sid != symptom_id]
-            flag_modified(case, "symptom_ids")  # Update the symptom_ids field
+            # Filter out the symptom_id from the array
+            case.symptom_ids = [
+                sid for sid in case.symptom_ids 
+                if sid != symptom_id
+            ]
+            # CRITICAL: Notify SQLAlchemy that the array was modified in-place
+            flag_modified(case, "symptom_ids")
             case.last_updated = datetime.now()
-            db.commit()
-            db.refresh(case)
-
-    # Delete symptom
+    
+    # Delete the symptom
     db.delete(symptom)
+    
+    # Single commit for all changes
     db.commit()
 
+    # Handle notification in background task
     background_tasks.add_task(
         create_notification,
-        message = f"user {user.name} has deleted symptom {symptom_id}", 
-        recipient_id = symptom.doctor_id, 
+        message = f"User {user.name} has deleted symptom {symptom_id}",
+        recipient_id = symptom.doctor_id if hasattr(symptom, 'doctor_id') else None,
         recipient_role = "doctor"
     )
 
     return {
-        "note" : "Symptom deleted successfully",
-        "id" : symptom_id,
-        "cases_affected" : len(cases)
+        "note": "Symptom deleted successfully",
+        "id": symptom_id,
+        "cases_affected": len(cases)
     }
 
 @router.delete("/appointment/{appointment_id}", status_code = 200)
@@ -967,12 +1032,11 @@ async def cancel_appointment(appointment_id : int, user : user_dependency, db : 
 
     # remove the price from case's cost
     case = db.query(Cases).filter(Cases.id == appointment.case_id).first()
-    case.cost -= appointment.price
+    doctor = db.query(Doctors).filter(Doctors.id == appointment.doctor_id).first()
+    case.cost -= doctor.appointment_fees
     db.refresh(case)
 
     # refund the payment
-    doctor = db.query(Doctors).filter(Doctors.id == appointment.doctor_id).first()
-    
     await handle_refund(
         db, 
         user.id, 

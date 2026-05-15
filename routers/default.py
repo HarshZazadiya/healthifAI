@@ -297,6 +297,12 @@ async def mark_notification_as_read(requester : requester_dependency, db : db_de
 @router.delete("/notification/{notification_id}", status_code = 200)
 async def delete_notification(requester : requester_dependency, db : db_dependency, notification_id : Optional[int]) :
     if notification_id :
-        return await delete_notifications(db, notification_id, requester["role"], requester["id"])
+        result = await delete_notifications(db, notification_id, requester["id"], requester["role"])
+        if result is None:
+            raise HTTPException(status_code = 404, detail = "Notification not found")
+        return result
     else :
-        return await delete_all_notification(db, requester["id"], requester["role"])
+        result = await delete_all_notification(db, requester["id"], requester["role"])
+        if result is None:
+            raise HTTPException(status_code = 404, detail = "Notification not found")
+        return result

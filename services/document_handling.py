@@ -31,23 +31,33 @@ async def get_document(db : Session, requester_id : int, requester_role : str, l
     if case_id is not None :
         cases = cases.filter(Cases.id == case_id)
         
-    cases = cases.limit(limit).offset(offset).all()
-    data = []
-    for case in cases:
-        user_document_ids = case.user_doc_ids
-        doctor_document_ids = case.doctor_doc_ids
-        documents = db.query(Documents).filter(Documents.id.in_(user_document_ids + doctor_document_ids)).all()
-        data.append({
-            "case_id" : case.case_id,
-            "documents" : [
-                {
-                    "document_id" : document.id,
-                    "document_type" : document.type,
-                    "document_url" : urljoin(BASE_URL, await generate_signed_url(document.document_path, requester_id, requester_role, document.id, 60))
-                }
-                for document in documents
-            ]
-        })
+        cases = cases.limit(limit).offset(offset).all()
+        data = []
+        for case in cases:
+            user_document_ids = case.user_doc_ids
+            doctor_document_ids = case.doctor_doc_ids
+            documents = db.query(Documents).filter(Documents.id.in_(user_document_ids + doctor_document_ids)).all()
+            data.append({
+                "case_id" : case.case_id,
+                "documents" : [
+                    {
+                        "document_id" : document.id,
+                        "document_type" : document.type,
+                        "document_url" : urljoin(BASE_URL, await generate_signed_url(document.document_path, requester_id, requester_role, document.id, 60))
+                    }
+                    for document in documents
+                ]
+            })
+    if not case_id :
+        documents = db.query(Documents).filter(Documents.user_id == requester_id, Documents.role == requester_role).all()
+        data = [
+            {
+                "document_id" : document.id,
+                "document_type" : document.type,
+                "document_url" : urljoin(BASE_URL, await generate_signed_url(document.document_path, requester_id, requester_role, document.id, 60))
+            }
+            for document in documents
+        ]
 
     return data
 
