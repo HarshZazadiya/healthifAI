@@ -219,8 +219,14 @@ async def create_user(request : CreateUserRequest, db : db_dependency):
 
 @router.post("/hospital", status_code = 201)
 async def register_hospital(request : CreateHospitalRequest, db : db_dependency, background_tasks : BackgroundTasks = BackgroundTasks()):
+    name = request.name
+    list_elements = name.split(" ")
+    if list_elements[-1].lower() != "hospital":
+        list_elements.append("Hospital")
+        name = " ".join(list_elements)
+
     hospital = Hospitals(
-        name = request.name.title(),
+        name = name.title(),
         email = request.email,
         hashed_password = bcrypt_context.hash(request.password),
         address = request.address,

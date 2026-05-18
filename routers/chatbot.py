@@ -1,14 +1,14 @@
 import os
 from pydantic import BaseModel
 from jose import jwt, JWTError
-from AI.graph import run_agent #type:ignore
+from AI.graph import run_agent
 from database import SessionLocal
 from sqlalchemy.orm import Session
 from typing import Annotated, Optional, List
 from fastapi import APIRouter, Depends, HTTPException
 from models import Users, ChatThread, ChatMessage
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from AI.user_config import get_user_sensitive_tools, update_user_sensitive_tools #type:ignore
+from AI.user_config import get_user_sensitive_tools, update_user_sensitive_tools
 from utils.dependencies import db_dependency
 
 router = APIRouter(
@@ -73,7 +73,7 @@ def get_user_from_token(token : str, db : Session):
             user = db.query(Users).filter(Users.id == user_id).first()
             name = user.name if user else "Admin"
         elif user_type == "host":
-            host = db.query(Hosts).filter(Hosts.id == user_id).first()
+            host = db.query(Hosts).filter(Hosts.id == user_id).first() 
             name = host.company_name if host else "Host"
         else:
             user = db.query(Users).filter(Users.id == user_id).first()

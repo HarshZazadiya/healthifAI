@@ -279,11 +279,11 @@ async def get_assigned_users(doctor : doctor_dependency, db : db_dependency, use
     cases = db.query(Cases).filter(Cases.user_id.in_(assigned_user_ids)).all()
     if cases is None:
         raise HTTPException(status_code = 404, detail = "No cases found")
-    case_map = {case.id : case for case in cases}
+    case_map = {case.user_id : case for case in cases}
     
     for assigned_user in assigned_users:
         user = user_map.get(assigned_user.user_id)
-        case = case_map.get(assigned_user.case_id)
+        case = case_map.get(assigned_user.user_id)
         
         data.append({
             "id" : assigned_user.id,
@@ -533,4 +533,31 @@ async def cancel_appointment(doctor : doctor_dependency, db : db_dependency, app
         "note" : "Appointments cancelled successfully",
         "deleted" : True,
         "deleted_count" : len(appointments)
+    }
+
+@router.delete("/cases/document", status_code = 200)
+async def remove_document_from_case(
+    doctor : doctor_dependency, 
+    db : db_dependency, 
+    case_id : int = Query(..., gt = 0), 
+    document_id : int = Query(..., gt = 0),
+    background_tasks : BackgroundTasks = BackgroundTasks()
+):
+    case = db.query(Cases).filter(Cases.id == case_id, Cases.doctor_id == doctor.id, case.status == "OPEN").first()
+    if not case:
+        raise HTTPException(404, "Case not found")
+    
+    if case.doctor_doc_ids and document_id in case.doctor_doc_ids:
+        case.doctor_doc_ids = [id for id in case.doctor_doc_ids if id != document_id]
+        case.last_updated = datetime.now()
+        db.commit()
+        background_tasks.add_task(
+            create_notification,
+            message = f"doctor {doctor.name} has removed document {document_id} from the case {case.case_id}", 
+            recipient_id = case.user_id, 
+            recipient_role = "user"
+        )
+    
+    return {
+        "note" : f"Document {document_id} removed from case"
     }

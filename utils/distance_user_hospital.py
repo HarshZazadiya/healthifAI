@@ -46,7 +46,8 @@ async def find_n_nearby_doctors(user : Users, db : Session, n = 10, distance_lim
 
         doctors = db.query(Doctors).filter(Doctors.hospital_id == hospital.id).all()
         if not doctors:
-            raise HTTPException(status_code = 404, detail = f"⚠️ No doctors in hospital : {hospital.name}")
+           continue
+        
         for doc in doctors:
             results.append({
                 "id" : doc.id,

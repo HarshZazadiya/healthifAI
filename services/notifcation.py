@@ -52,20 +52,20 @@ async def delete_notifications(db : Session, notification_id : int, user_id : in
     notification = db.query(Notifications).filter(Notifications.id == notification_id, Notifications.user_id == user_id, Notifications.role == role).first()
     if not notification:
         raise ValueError("Notification not found")
-
     db.delete(notification)
     db.commit()
 
-    return {"message" : f"{len(notification)} Notification deleted"}
+    return {"message" : f"1 Notification deleted"}
 
 async def delete_all_notification(db : Session, user_id : int, role : str):
     notifications = db.query(Notifications).filter(Notifications.user_id == user_id, Notifications.role == role).all()
     if not notifications:
         raise ValueError("No notifications found")
 
+    length = len(notifications)
     for notification in notifications:
         db.delete(notification)
 
     db.commit()
 
-    return {"message" : f"{len(notification)} Notification deleted"}
+    return {"message" : f"{length} Notification deleted"}
