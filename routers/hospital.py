@@ -77,7 +77,8 @@ async def see_profile(hospital : hospital_dependency, db : db_dependency):
         "city" : hospital.city,
         "state" : hospital.state,
         "zip" : hospital.zip,
-        "phone" : hospital.phone_number
+        "phone" : hospital.phone_number,
+        "google_email_id" : hospital.google_email_id
     }
 
 @router.get("/doctors", status_code = 200)

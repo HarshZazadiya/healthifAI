@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../services/api';
 import NotificationBell from '../components/NotificationBell';
 import MapComponent from '../components/MapComponent';
@@ -6,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { 
   LayoutDashboard, Users, UserCheck, Building2, 
   FileText, Wallet, BellRing, LogOut, 
-  MapPin, ShieldAlert, CheckCircle2, ChevronRight, Activity, DollarSign
+  MapPin, ShieldAlert, CheckCircle2, ChevronRight, Activity, DollarSign, Lock, X
 } from 'lucide-react';
 
 const AdminDashboard = () => {
@@ -21,6 +22,17 @@ const AdminDashboard = () => {
   const [notification, setNotification] = useState({ recipient_id: '', recipient_role: 'user', message: '' });
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+
+  // Modern UI states
+  const [toastMessage, setToastMessage] = useState('');
+  const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: '', message: '', onConfirm: null, isDestructive: true, confirmText: 'Confirm' });
+  const [newPassword, setNewPassword] = useState('');
+  const [updatingPassword, setUpdatingPassword] = useState(false);
+
+  const showToast = (msg) => { setToastMessage(msg); setTimeout(() => setToastMessage(''), 3000); };
+  const showConfirm = (title, message, onConfirm, confirmText = 'Confirm', isDestructive = true) => {
+    setConfirmDialog({ isOpen: true, title, message, onConfirm, confirmText, isDestructive });
+  };
 
   const loadData = async () => {
     try {
@@ -49,31 +61,67 @@ const AdminDashboard = () => {
   useEffect(() => { loadData(); }, [activeTab, page]);
 
   const deleteEntity = async (type, id) => {
-    if(window.confirm(`Are you sure you want to deactivate this ${type}?`)) {
-      await api.delete(`/admin/${type}/${id}`);
-      alert(`${type} deactivated`);
-      loadData();
-    }
+    let deletePath = `/admin/${type}/${id}`;
+    if (type === 'user') deletePath = `/admin/users/${id}`;
+    else if (type === 'doctor') deletePath = `/admin/doctors/${id}`;
+    else if (type === 'hospital') deletePath = `/admin/hospital/${id}`;
+
+    showConfirm(
+      `Deactivate ${type}?`,
+      `Are you sure you want to temporarily deactivate this ${type}? They will lose access to the platform immediately.`,
+      async () => {
+        try {
+          await api.delete(deletePath);
+          showToast(`${type} deactivated successfully`);
+          setConfirmDialog({ isOpen: false });
+          loadData();
+        } catch (err) {
+          showToast(`Failed to deactivate ${type}`);
+          setConfirmDialog({ isOpen: false });
+        }
+      },
+      'Deactivate',
+      true
+    );
   };
 
   const reactivateEntity = async (type, id) => {
-    await api.put(`/admin/${type}/reactivate/${id}`);
-    alert(`${type} reactivated`);
-    loadData();
+    try {
+      await api.put(`/admin/reactive/${type}/${id}`);
+      showToast(`${type} reactivated successfully`);
+      loadData();
+    } catch (err) {
+      showToast(`Failed to reactivate ${type}`);
+    }
   };
 
   const sendNotification = async () => {
-    if(!notification.recipient_id || !notification.message) return alert("Fill all fields");
+    if(!notification.recipient_id || !notification.message) return showToast("Please fill all notification fields");
     try {
       await api.post('/default/notification', {
         recipient_id: parseInt(notification.recipient_id),
         recipient_role: notification.recipient_role,
         message: notification.message
       });
-      alert('Notification sent');
+      showToast('Notification sent successfully');
       setNotification({ recipient_id: '', recipient_role: 'user', message: '' });
     } catch(err) {
-      alert("Failed to send: " + (err.response?.data?.detail || err.message));
+      showToast(err.response?.data?.detail || 'Failed to send notification');
+    }
+  };
+
+  const changePassword = async (e) => {
+    e.preventDefault();
+    if (!newPassword.trim()) return showToast('Please enter a new password');
+    setUpdatingPassword(true);
+    try {
+      await api.put('/default/password', { password: newPassword });
+      showToast('Admin password updated successfully');
+      setNewPassword('');
+    } catch (err) {
+      showToast(err.response?.data?.detail || 'Failed to update password');
+    } finally {
+      setUpdatingPassword(false);
     }
   };
 
@@ -331,6 +379,40 @@ const AdminDashboard = () => {
     </div>
   );
 
+  const renderSettings = () => (
+    <div className="max-w-xl space-y-6 animate-fade-in">
+      <Card>
+        <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2"><Lock className="text-rose-600" /> Administrative Security</h2>
+        <form onSubmit={changePassword} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">New Administrator Password</label>
+            <input 
+              type="password" 
+              value={newPassword} 
+              onChange={e => setNewPassword(e.target.value)} 
+              placeholder="Enter new administrator password"
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-rose-500 transition-all outline-none"
+              required
+            />
+          </div>
+          <button 
+            type="submit" 
+            disabled={updatingPassword}
+            className="w-full bg-rose-600 hover:bg-rose-700 text-white font-semibold py-3 rounded-xl transition-all shadow-sm shadow-rose-200 disabled:opacity-50"
+          >
+            {updatingPassword ? 'Updating Security...' : 'Update Password'}
+          </button>
+        </form>
+      </Card>
+
+      <Card>
+        <h3 className="font-bold text-slate-800 mb-2">System Credentials & Logs</h3>
+        <p className="text-sm text-slate-600 mb-4">Access server logs, Redis configurations, and JWT configurations.</p>
+        <button disabled className="bg-slate-100 text-slate-400 font-medium px-4 py-2 rounded-xl text-sm cursor-not-allowed">Export Configuration</button>
+      </Card>
+    </div>
+  );
+
   const tabs = [
     { id: 'users', name: 'Users', icon: Users },
     { id: 'doctors', name: 'Doctors', icon: UserCheck },
@@ -339,16 +421,41 @@ const AdminDashboard = () => {
     { id: 'transactions', name: 'Transactions', icon: DollarSign },
     { id: 'wallets', name: 'Wallets', icon: Wallet },
     { id: 'notifications', name: 'Alerts', icon: BellRing },
+    { id: 'settings', name: 'Settings', icon: Lock },
   ];
 
   return (
     <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50">
+          <div className="bg-slate-800 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-2 animate-bounce">
+            <CheckCircle2 className="text-emerald-400" size={18}/> 
+            {toastMessage}
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Dialog Modal */}
+      {confirmDialog.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex justify-center items-center z-[100] p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full animate-fade-in">
+            <h3 className="text-xl font-bold text-slate-800 mb-2">{confirmDialog.title}</h3>
+            <p className="text-slate-600 mb-6">{confirmDialog.message}</p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setConfirmDialog({isOpen:false})} className="px-4 py-2 bg-slate-100 rounded-xl">Cancel</button>
+              <button onClick={confirmDialog.onConfirm} className={`px-4 py-2 text-white rounded-xl ${confirmDialog.isDestructive ? 'bg-rose-500 hover:bg-rose-600' : 'bg-rose-600 hover:bg-rose-700'}`}>{confirmDialog.confirmText}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Sidebar */}
       <div className="w-72 bg-slate-900 text-slate-300 flex flex-col border-r border-slate-800 hidden md:flex z-10 shadow-2xl">
-        <div className="p-6 border-b border-slate-800 flex items-center gap-3">
+        <Link to="/" className="p-6 border-b border-slate-800 flex items-center gap-3 hover:opacity-85 active:scale-95 transition-all">
           <div className="bg-rose-600 p-2 rounded-xl text-white"><ShieldAlert size={24}/></div>
           <h1 className="text-xl font-bold text-white tracking-tight">HealthifAI Admin</h1>
-        </div>
+        </Link>
         <div className="flex-1 overflow-y-auto py-6 px-4 space-y-1 custom-scrollbar">
           {tabs.map((tab) => {
             const Icon = tab.icon;
@@ -402,6 +509,7 @@ const AdminDashboard = () => {
             {activeTab === 'transactions' && renderTransactions()}
             {activeTab === 'wallets' && renderWallets()}
             {activeTab === 'notifications' && renderNotifications()}
+            {activeTab === 'settings' && renderSettings()}
           </div>
         </main>
       </div>

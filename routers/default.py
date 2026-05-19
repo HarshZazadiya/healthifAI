@@ -7,7 +7,7 @@ from typing import Annotated, List, Optional
 from passlib.context import CryptContext
 from fastapi.security import OAuth2PasswordBearer
 from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
-from models import Cases, Doctors, AssignedDoctors
+from models import Cases
 from services.payment import handle_payment
 from services.profile import change_password
 from services.wallet import my_wallet, top_up
@@ -79,28 +79,31 @@ async def password(request : PasswordRequest, requester : requester_dependency, 
 # =====================================================================================
 
 @router.put("/topUp")
-async def top_up_wallet(db : db_dependency, payment_request : PaymentRequest, token : Annotated[str, Depends(oauth2_bearer)]):
+async def top_up_wallet(db: db_dependency, payment_request: PaymentRequest, token: Annotated[str, Depends(oauth2_bearer)]):
     """Add money to wallet"""
+    if payment_request.amount <= 0:
+        raise HTTPException(status_code = 400, detail = "Amount must be positive")
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms = [ALGORITHM])
+        owner_role = payload.get("role")
+        logger.info(f"Decoded token : {payload}")
+        if not owner_role:
+            raise HTTPException(status_code = 401, detail = "Token missing 'role' claim")
         owner_type = payload.get("type")
         owner_id   = payload.get("id")
         owner_role = payload.get("role")
     except JWTError:
         raise HTTPException(status_code = 401, detail = "Invalid token")
 
-    result = await top_up(db, payment_request.amount, owner_id, owner_role, owner_type)
+    try:
+        result = await top_up(db, payment_request.amount, owner_id, owner_role, owner_type)
+    except HTTPException as e:
+        logger.error(f"Top-up failed: {e.detail}")
+        raise
+    except Exception as e:
+        logger.exception("Unexpected error during top-up")
+        raise HTTPException(status_code=400, detail=str(e))
 
-    if result.get("message") == "Wallet topped up successfully":
-        handle_payment(
-            db, 
-            owner_id, 
-            owner_role, 
-            owner_id, 
-            owner_role, 
-            payment_request.amount, 
-            note = "TOP-UP", type = "INCOMING"
-        )
     if redis_client:
         try:
             await redis_client.delete(f"wallet : {owner_type} : {owner_id}")
@@ -202,32 +205,25 @@ async def delete_document(doc_id : int, requester : requester_dependency, db : d
 
     return result
 
-@router.get("/view", status_code=200)
-async def view_file(
-    token: str = Query(..., description = "Signed URL token")
-):
+@router.api_route("/view", methods=["GET", "HEAD"], status_code = 200)
+async def view_file(token: str = Query(...)):
     try:
-        # Decode and verify the token
         payload = serializer.loads(token)
         result = await verify_signed_url(token)
         if result == False:
             raise HTTPException(status_code=403, detail="Access denied")
         
-        # Get file info
         url_file_path = payload["file_path"]
         original_filename = payload.get("original_filename", "document")
-        logger.info(f"Original filename: {original_filename}")
+        directory = payload["directory"]
         
-        # Convert URL path to filesystem path
         BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        DOCUMENTS_DIR = os.path.join(BASE_DIR, "documents")
-        actual_file_path = os.path.join(DOCUMENTS_DIR, os.path.basename(url_file_path))
+        target_dir = os.path.join(BASE_DIR, directory)
+        actual_file_path = os.path.join(target_dir, os.path.basename(url_file_path))
         
-        # Check if file exists
         if not os.path.exists(actual_file_path):
-            raise HTTPException(status_code = 404, detail = f"File not found")
+            raise HTTPException(status_code=404, detail="File not found")
         
-        # Get actual file extension
         actual_filename = os.path.basename(actual_file_path)
         ext = actual_filename.rsplit('.', 1)[-1].lower() if '.' in actual_filename else 'bin'
         
@@ -239,50 +235,50 @@ async def view_file(
         else:
             display_filename = f"{original_filename}.{ext}"
         
-        logger.info(f"Display filename: {display_filename}")
-        
         # MIME types
         mime_types = {
-            'pdf' : 'application/pdf',
-            'jpg' : 'image/jpeg',
-            'jpeg' : 'image/jpeg',
-            'png' : 'image/png',
-            'gif' : 'image/gif',
-            'webp' : 'image/webp',
-            'svg' : 'image/svg+xml',
-            'txt' : 'text/plain',
-            'doc' : 'application/msword',
-            'docx' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'pdf': 'application/pdf',
+            'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+            'png': 'image/png', 'gif': 'image/gif',
+            'webp': 'image/webp', 'svg': 'image/svg+xml',
+            'txt': 'text/plain',
+            'doc': 'application/msword',
+            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         }
-        
         media_type = mime_types.get(ext, 'application/octet-stream')
         
-        return FileResponse(
-            path = actual_file_path,
-            media_type = media_type
-        )
+        # Inline for images and PDFs, else attachment
+        inline_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf']
+        inline = media_type in inline_types
         
+        headers = {
+            "Content-Disposition": f"{'inline' if inline else 'attachment'}; filename={display_filename}"
+        }
+        
+        return FileResponse(
+            path=actual_file_path,
+            media_type=media_type,
+            headers=headers
+        )
     except SignatureExpired:
         raise HTTPException(status_code=410, detail="Download link has expired")
     except BadSignature:
         raise HTTPException(status_code=400, detail="Invalid download link")
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.info(f"Download error: {str(e)}")
+        logger.error(f"Download error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-    
+
 # =====================================================================================
 # NOTIFICATIONS
 # =====================================================================================
 
-@router.get("/notifications/", status_code = 200)
+@router.get("/notifications", status_code = 200)
 async def get_notifications(requester : requester_dependency, db : db_dependency):
     notifications = await my_notfications(db, requester["id"], requester["role"])
     return {"notifications" : notifications, "count" : len(notifications)}
 
-@router.put("/notification/", status_code = 200)
-async def mark_notification_as_read(requester : requester_dependency, db : db_dependency, notification_id : Optional[int] = Query(None, description = "Filter by notification id")):
+@router.put("/notification", status_code = 200)
+async def mark_notification_as_read(requester : requester_dependency, db : db_dependency, notification_id : Optional[int] = None):
     if notification_id :
         # mark one as read
         result = await mark_notifications_as_read(db, requester["id"], requester["role"], notification_id = notification_id)

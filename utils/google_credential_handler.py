@@ -16,9 +16,6 @@ def get_db():
 db_dependency = Annotated[Session, Depends(get_db)]
 
 async def handle_google_login(actual_email, actual_user_id, actual_role, user_email, user_name, user_pic, access_token, refresh_token, db : db_dependency):
-    # Check if user exists
-    if await check_duplicacy(actual_email, actual_role, db):
-        raise HTTPException(status_code = 400, detail = "User already exists with this email : " + actual_email)
     user = db.query(Users).filter(Users.email == actual_email).first()
     if not user:
         # Determine role: check if doctor or hospital

@@ -81,7 +81,8 @@ async def get_all_users(
             "account_type" : user.account_type,
             "role" : user.role,
             "lat" : user.lat,
-            "lon" : user.lon
+            "lon" : user.lon,
+            "is_active" : user.is_active
         }
         for user in users
     ]

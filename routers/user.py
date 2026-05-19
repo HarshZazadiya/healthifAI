@@ -1,3 +1,4 @@
+from decimal import Decimal
 import os
 from pydantic import BaseModel, Field, field_validator, EmailStr
 from urllib.parse import urljoin
@@ -86,7 +87,7 @@ async def get_my_cases(
     db : db_dependency,
     status : Optional[str] = None,
     page : int = Query(1, ge = 1),
-    limit : int = Query(20, ge = 1, le = 100),
+    limit : int = Query(4, ge = 1, le = 100),
     from_date : Optional[datetime] = None,
     to_date : Optional[datetime] = None,
     doctor_id : Optional[int] = None,
@@ -132,7 +133,7 @@ async def get_my_cases(
         
         # Fetch symptoms
         symptoms = db.query(Symptoms).filter(Symptoms.id.in_(all_symptom_ids)).all() if all_symptom_ids else []
-        symptom_map = {s.id: s.symptom for s in symptoms}
+        symptom_map = {s.id: s for s in symptoms}
         
         # Build response - ONLY ONE LOOP
         result = []
@@ -144,7 +145,8 @@ async def get_my_cases(
                     if s_id in symptom_map:
                         case_symptoms.append({
                             "id" : s_id,
-                            "name" : symptom_map[s_id]
+                            "name" : symptom_map.get(s_id).symptom,
+                            "severity" : symptom_map.get(s_id).severity
                         })
             
             result.append({
@@ -397,12 +399,16 @@ async def my_doctors(
             "name" : doctor.name,
             "email" : doctor.email,
             "phone_number" : doctor.phone_number,
+            "fees" : doctor.fees,
+            "appointment_fees" : doctor.appointment_fees,
             "id" : case.id if case else None,
             "case_id" : case.case_id if case else None,
             "diesease" : case.diesease if case else None,
             "specialty" : doctor.specialty,
             "hospital" : hospital.name if hospital else None,
-            "hospital_id" : doctor.hospital_id
+            "hospital_id" : doctor.hospital_id,
+            "hospital_lat" : hospital.lat if hospital else None,
+            "hospital_lon" : hospital.lon if hospital else None
         })
     
     return data
@@ -454,42 +460,32 @@ from fastapi import Query, HTTPException
 
 @router.get("/transactions/", status_code=200)
 async def show_all_transactions(
-    user: user_dependency, 
-    db: db_dependency, 
-    type: Optional[str] = None, 
-    date: Optional[date] = None, 
-    page: int = Query(1, ge=1), 
-    limit: int = Query(20, ge=1, le=100)
+    user : user_dependency, 
+    db : db_dependency, 
+    type : Optional[str] = None, 
+    date : Optional[date] = None, 
+    page : int = Query(1, ge=1), 
+    limit : int = Query(20, ge=1, le=100)
 ):
-    query = db.query(UserPayments).filter(
-        UserPayments.user_id == user.id, 
-        UserPayments.role == "user"
-    )
+    query = db.query(UserPayments).filter(UserPayments.user_id == user.id,  UserPayments.role == "user")
 
     if type:
-        # Convert input to uppercase to match database format
         query = query.filter(UserPayments.type == type.upper())
 
     if date:
         start_of_day = datetime.combine(date, datetime.min.time())
         end_of_day = datetime.combine(date, datetime.max.time())
-        query = query.filter(
-            UserPayments.date >= start_of_day, 
-            UserPayments.date <= end_of_day
-        )
+        query = query.filter(UserPayments.date >= start_of_day,  UserPayments.date <= end_of_day)
 
-    transactions = query.order_by(UserPayments.date.desc())\
-                       .offset((page - 1) * limit)\
-                       .limit(limit)\
-                       .all()
+    transactions = query.order_by(UserPayments.date.desc()).offset((page - 1) * limit).limit(limit).all()
     
     return [
         {
-            "id": transaction.id,
-            "date": transaction.date.isoformat() if transaction.date else None,
-            "amount": transaction.amount,
-            "type": transaction.type,
-            "note": transaction.note
+            "id" : transaction.id,
+            "date" : transaction.date.isoformat() if transaction.date else None,
+            "amount" : transaction.amount,
+            "type" : transaction.type,
+            "note" : transaction.note
         }
         for transaction in transactions
     ]
@@ -602,8 +598,17 @@ async def assign_doctor(doctor_id : int, user : user_dependency, db : db_depende
     # send notification to doctor
     background_tasks.add_task(
         create_notification,
-        message = f"Your case with case_id {case.case_id} has been closed by doctor {doctor.name}", 
-        recipient_id = case.user_id, 
+        db,
+        message = f"You have been assigned to case {case.case_id} for user {user.name}", 
+        recipient_id = case.doctor_id, 
+        recipient_role = "dpoctor"
+    )
+
+    background_tasks.add_task(
+        create_notification,
+        db,
+        message = f"You have been sucessfully assigned to doctor {doctor.name}", 
+        recipient_id = user.id, 
         recipient_role = "user"
     )
 
@@ -690,10 +695,11 @@ async def reopen_case(case_id : int, user : user_dependency, db : db_dependency,
     if doctor.availability == False :
         raise HTTPException(status_code = 400, detail = "Doctor is not available")
     # if it was last updated under 6 month ago then take half fees, otherwise it would cost full fees
-    if (datetime.now() - last_updated).days > 180:
-        amount = int(doctor.fees) * 0.5
+    days = (datetime.now() - last_updated).days
+    if days < 180:
+        amount = amount = Decimal(doctor.fees) * Decimal('0.5')
     else:
-        amount = int(doctor.fees) 
+        amount = Decimal(doctor.fees) 
     
     case.cost += amount
 
@@ -755,7 +761,10 @@ async def add_documents_to_case(case_id : int, user : user_dependency, db : db_d
     case = db.query(Cases).filter(Cases.id == case_id, Cases.user_id == user.id).first()
     if not case:
         raise HTTPException(status_code = 404, detail = "Case not found")
+    
     for document_id in request.document_ids:
+        if document_id in case.user_doc_ids :
+            raise HTTPException(status_code = 400, detail = f"Document with id {document_id} is already added to the case")
         document = db.query(Documents).filter(Documents.id == document_id, Documents.user_id == user.id).first()
         if not document:
             raise HTTPException(status_code = 404, detail = f"Document not found for document : {document_id}")

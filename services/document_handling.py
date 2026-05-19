@@ -54,6 +54,8 @@ async def get_document(db : Session, requester_id : int, requester_role : str, l
             {
                 "document_id" : document.id,
                 "document_type" : document.type,
+                "date" : document.date.date(),
+                "time" : document.date.time(),
                 "document_url" : urljoin(BASE_URL, await generate_signed_url(document.document_path, requester_id, requester_role, document.id, 60))
             }
             for document in documents
@@ -81,7 +83,7 @@ async def add_document(db: Session, uploader_id: int, uploader_role: str, file: 
     
     if case_id is not None:
         # check if they can upload in the case
-        case = db.query(Cases).filter(Cases.id == case_id).first()
+        case = db.query(Cases).filter(Cases.id == case_id, Cases.status == "OPEN").first()
         if not case:
             db.rollback()
             raise HTTPException(status_code = 404, detail = "Case not found")

@@ -124,6 +124,8 @@ def create_refresh_token(entity_id : int, entity_type : str, role : str):
 @router.post("/token")
 async def login(form_data : OAuth2PasswordRequestForm = Depends(), db : Session = Depends(get_db)):
     user = authenticate_user(form_data.username, form_data.password, db)
+    if user and user.is_active == False:
+        raise HTTPException(status_code = 401, detail = "You have been inactivated by the admin")
     if user:
         return {
             "access_token" : create_access_token(user.id, "user", user.role),
@@ -139,6 +141,8 @@ async def login(form_data : OAuth2PasswordRequestForm = Depends(), db : Session 
         }
 
     doctor = authenticate_doctor(form_data.username, form_data.password, db)
+    if doctor and doctor.is_active == False:
+        raise HTTPException(status_code = 401, detail = "You have been inactivated by the admin")
     if doctor:
         return {
             "access_token" : create_access_token(doctor.id, "doctor", "doctor"),
@@ -154,6 +158,8 @@ async def login(form_data : OAuth2PasswordRequestForm = Depends(), db : Session 
         }
     
     hospital = authenticate_hospital(form_data.username, form_data.password, db)
+    if hospital and hospital.is_active == False:
+        raise HTTPException(status_code = 401, detail = "You have been inactivated by the admin")
     if hospital:
         return {
             "access_token" : create_access_token(hospital.id, "hospital", "hospital"),

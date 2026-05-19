@@ -4,7 +4,7 @@ import shutil
 import pdfplumber
 from pathlib import Path
 from logs.logging import logger
-from AI.AI_models import embeddings
+from AI.config.AI_models import embeddings
 from langchain_core.tools import tool
 import chromadb
 from chromadb.utils import embedding_functions

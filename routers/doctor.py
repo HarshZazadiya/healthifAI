@@ -7,6 +7,7 @@ from fastapi import BackgroundTasks, Query
 from datetime import datetime, date
 from fastapi import APIRouter, HTTPException
 from services.notifcation import create_notification
+from services.payment import handle_refund
 from utils.signed_url_generator import generate_signed_url
 from utils.dependencies import doctor_dependency, db_dependency
 from models import Cases, Doctors, Documents, Hospitals, Users, Appointments, Symptoms, AssignedDoctors, DoctorPayments
@@ -75,7 +76,7 @@ async def get_my_cases(
         
         # Batch fetch all related data
         user_ids = list(set([c.user_id for c in cases]))
-        users = {d.id : d.name for d in db.query(Users).filter(Users.id.in_(user_ids)).all()}
+        users = {u.id : u for u in db.query(Users).filter(Users.id.in_(user_ids)).all()}
         
         all_doc_ids = set()
         all_symptom_ids = set()
@@ -109,12 +110,16 @@ async def get_my_cases(
                             "id" : s_id,
                             "name" : symptom_map[s_id]
                         })
-            
+            user  = users.get(case.user_id)
             result.append({
                 "id" : case.id,
                 "case_id" : case.case_id,
                 "status" : case.status,
-                "doctor_name" : users.get(case.doctor_id),
+                "user_name" : user.name if user else None,
+                "user_email" : user.email if user else None,
+                "user_phone_number" : user.phone_number if user else None,
+                "user_lat" : user.lat if user else None,
+                "user_lon" : user.lon if user else None,  
                 "case_opened_on" : case.date.isoformat(),
                 "case_updated_on" : case.last_updated.isoformat() if case.last_updated else None,
                 "documents" : {
@@ -159,6 +164,10 @@ async def get_my_cases(
             "case_id" : case.case_id,
             "status" : case.status,
             "user_name" : user.name,
+            "user_email" : user.email,
+            "user_phone_number" : user.phone_number,
+            "user_lat" : user.lat,
+            "user_lon" : user.lon,
             "case_opened_on" : case.date.isoformat(),
             "case_updated_on" : case.last_updated.isoformat(),
             "documents" : {
@@ -522,7 +531,20 @@ async def cancel_appointment(doctor : doctor_dependency, db : db_dependency, app
                 recipient_id = app.user_id, 
                 recipient_role = "user"
             )
-            db.delete(app)
+
+            # remove the price from case's cost
+            case = db.query(Cases).filter(Cases.id == app.case_id).first()
+            case.cost -= doctor.appointment_fees
+            case.last_updated = datetime.now()
+            db.refresh(case)
+            
+            # refund the payment
+            await handle_refund(db, app.user_id, "user", doctor.id, "doctor", doctor.appointment_fees, note = f"Refund for cancelled appointment of case {case.case_id}")
+            
+            # Cancel the appointment
+            app.status = "CANCELLED"
+            
+            db.commit()
     except Exception as e:
         # rollback the transaction
         db.rollback()

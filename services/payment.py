@@ -3,6 +3,7 @@ from typing import Optional
 from logs.logging import logger
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+from utils.redis_config import redis_client
 from models import Doctors, Hospitals, Users, Wallet, UserPayments, DoctorPayments
 
 async def handle_payment(
@@ -17,7 +18,7 @@ async def handle_payment(
 ):
     if sender_role.lower() not in ["user", "doctor", "hospital", "admin"] or reciever_role.lower() not in ["user", "doctor", "hospital", "admin"]:
         raise HTTPException(status_code = 400, detail = "Invalid role")
-    if sender_role == reciever_role and sender_id == reciever_id:
+    if sender_role == reciever_role and sender_id == reciever_id and note != "TOP-UP":
         raise HTTPException(status_code = 400, detail = "Sender and reciever cannot be same")
     if amount < 0:
         raise HTTPException(status_code = 400, detail = "Amount can not be less than 0")
@@ -27,6 +28,7 @@ async def handle_payment(
             payment = UserPayments(
                 user_id = sender_id,
                 amount = amount,
+                role = sender_role,
                 type = type,
                 note = note
             )
@@ -145,6 +147,16 @@ async def handle_payment(
         db.add(sender_payment)
         db.commit()
         logger.info(f"payment sent : {sender_payment}")
+
+    # clear cache
+    if redis_client:
+        try:
+            await redis_client.delete(f"wallet : {reciever_role} : {reciever_id}")
+            await redis_client.delete(f"wallet : {sender_role} : {sender_id}")
+            logger.info(f"✅ Redis cache cleared for {reciever_role} : {reciever_id}")
+            logger.info(f"✅ Redis cache cleared for {sender_role} : {sender_id}")
+        except Exception as e:
+            logger.info(f"⚠️ Redis cache clear failed (non-critical) : {e}")
 
     return {
         "status" : "success",

@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../services/api';
 import NotificationBell from '../components/NotificationBell';
 import MapComponent from '../components/MapComponent';
@@ -9,9 +10,13 @@ import {
   LayoutDashboard, User, Activity, FileText, Calendar,
   Search, Users, Wallet, File, MapPin, X, Plus,
   Map as MapIcon, LogOut, ChevronRight,
-  Clock, DollarSign, Star, Navigation, Upload, CheckCircle2, Lock, Building2, Edit2
+  Clock, DollarSign, Navigation, Upload, CheckCircle2, Lock, Building2, Edit2, Download,
+  MessageCircle, Send, Paperclip
 } from 'lucide-react';
 
+// ============================================
+// COMMON COMPONENTS
+// ============================================
 const StatusBadge = ({ status }) => {
   const colors = {
     OPEN: 'bg-emerald-100 text-emerald-700 border-emerald-200',
@@ -28,14 +33,908 @@ const StatusBadge = ({ status }) => {
   );
 };
 
-const Card = ({ children, className = '' }) => (
-  <div className={`bg-white rounded-2xl border border-slate-100 shadow-sm p-6 transition-all duration-300 hover:shadow-md ${className}`}>
+const Card = ({ children, className = '', ...props }) => (
+  <div className={`bg-white rounded-2xl border border-slate-100 shadow-sm p-6 transition-all duration-300 hover:shadow-md ${className}`} {...props}>
     {children}
   </div>
 );
 
+// ============================================
+// MAP MODAL (for doctor location)
+// ============================================
+const MapModal = ({ hospitalLat, hospitalLon, hospitalName, userLat, userLon, onClose, onGoToLocationTab }) => {
+  const markers = [];
+  if (hospitalLat && hospitalLon) {
+    markers.push({ lat: parseFloat(hospitalLat), lon: parseFloat(hospitalLon), label: hospitalName, isUser: false });
+  }
+  if (userLat && userLon) {
+    markers.push({ lat: parseFloat(userLat), lon: parseFloat(userLon), label: 'Your location', isUser: true });
+  }
+
+  const hasHospitalLocation = hospitalLat && hospitalLon;
+  const hasUserLocation = userLat && userLon;
+
+  if (!hasHospitalLocation) {
+    return (
+      <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl">
+        <div className="text-center">
+          <MapIcon size={48} className="mx-auto text-slate-400 mb-4" />
+          <h3 className="text-xl font-bold text-slate-800 mb-2">Location not available</h3>
+          <p className="text-slate-600 mb-6">This hospital hasn't provided its exact location.</p>
+          <button onClick={onClose} className="bg-blue-600 text-white px-6 py-2 rounded-xl">Close</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-3xl w-full h-full flex flex-col shadow-2xl">
+      <div className="flex justify-between items-center p-4 border-b border-slate-200">
+        <h3 className="font-bold text-slate-800">Location - {hospitalName}</h3>
+        <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600"><X size={20} /></button>
+      </div>
+      <div className="flex-1 p-4 min-h-[400px]">
+        {!hasUserLocation && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 text-amber-800 text-sm flex justify-between items-center">
+            <span>⚠️ Your location is not set. The map shows only the hospital.</span>
+            <button onClick={onGoToLocationTab} className="bg-amber-100 hover:bg-amber-200 px-3 py-1 rounded-lg text-amber-900 font-medium text-xs">Set Location</button>
+          </div>
+        )}
+        <MapComponent markers={markers} />
+      </div>
+    </div>
+  );
+};
+
+// ============================================
+// DOCTOR DETAILS MODAL (embedded in the main modal container)
+// ============================================
+const DoctorDetailsModal = ({ doctor, hospital, userLocation, onClose, onChat, onMap }) => {
+  if (!doctor) return null;
+  return (
+    <div className="bg-white rounded-3xl p-8 w-full h-full flex flex-col shadow-2xl overflow-auto">
+      <div className="flex justify-between items-start mb-4">
+        <div className="flex items-center gap-4">
+          <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold text-xl">
+            {doctor.name?.charAt(0)}
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold text-slate-800">Dr. {doctor.name}</h2>
+            <p className="text-blue-600 font-medium">{doctor.specialty || 'General Physician'}</p>
+          </div>
+        </div>
+        <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full transition-colors"><X size={20} /></button>
+      </div>
+
+      <div className="space-y-4 mb-6 flex-1">
+        <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Doctor Info</h4>
+          {doctor.email && <p className="text-sm text-slate-700 flex items-center gap-2 mb-1">✉️ {doctor.email}</p>}
+          {doctor.phone_number && <p className="text-sm text-slate-700 flex items-center gap-2 mb-1">📞 {doctor.phone_number}</p>}
+          {doctor.fees && <p className="text-sm text-slate-700 flex items-center gap-2">💰 Consultation Fee: ₹{doctor.fees}</p>}
+          {doctor.appointment_fees && <p className="text-sm text-slate-700 flex items-center gap-2">📅 Appointment Fee: ₹{doctor.appointment_fees}</p>}
+        </div>
+
+        {hospital && (
+          <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100">
+            <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2 flex items-center gap-2">
+              <Building2 size={14} /> Hospital Details
+            </h4>
+            <p className="font-bold text-slate-800">{hospital.name}</p>
+            <p className="text-sm text-slate-600 mt-1"><MapPin size={14} className="inline mr-1" /> {hospital.address}</p>
+            {hospital.phone_number && <p className="text-sm text-slate-600 mt-1">📞 {hospital.phone_number}</p>}
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-3 mt-auto">
+        <button onClick={onMap} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition-colors flex items-center justify-center gap-2">
+          <MapIcon size={18} /> See on Map
+        </button>
+        <button onClick={onChat} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3 rounded-xl transition-colors flex items-center justify-center gap-2">
+          <MessageCircle size={18} /> Chat
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ============================================
+// DOCUMENT VIEWER MODAL (with Range request sniffing)
+// ============================================
+const DocumentViewerModal = ({ url, filename, onClose }) => {
+  const [contentType, setContentType] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!url) return;
+
+    setLoading(true);
+    setContentType(null);
+
+    fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store'
+    })
+      .then(res => {
+        const type = res.headers.get('content-type');
+
+        if (type?.startsWith('image/')) {
+          setContentType('image');
+        } else if (type?.includes('pdf')) {
+          setContentType('pdf');
+        } else {
+          setContentType('other');
+        }
+      })
+      .catch(() => {
+        const ext = filename?.split('.').pop()?.toLowerCase();
+
+        if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) {
+          setContentType('image');
+        } else if (ext === 'pdf') {
+          setContentType('pdf');
+        } else {
+          setContentType('other');
+        }
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+
+  }, [url, filename]);
+
+
+  if (loading) {
+    return (
+      <div
+        onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4 cursor-pointer"
+      >
+        <div className="bg-white rounded-3xl p-8 w-full max-w-4xl text-center cursor-default">Loading document preview...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4 animate-fade-in cursor-pointer"
+    >
+      <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl relative cursor-default">
+        <div className="flex justify-between items-center p-4 border-b border-slate-200">
+          <h3 className="font-bold text-slate-800 truncate">{filename || 'Document'}</h3>
+          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full transition-colors"><X size={20} /></button>
+        </div>
+        <div className="flex-1 overflow-auto p-4 bg-slate-50 flex items-center justify-center min-h-[400px]">
+          {contentType === 'image' ? (
+            <img src={`${url}&v=${Date.now()}`} className="max-w-full max-h-[70vh] object-contain rounded-lg" />
+          ) : contentType === 'pdf' ? (
+            <iframe src={`${url}&v=${Date.now()}`} className="w-full h-[70vh] rounded-lg border-0" title={filename} />
+          ) : (
+            <div className="text-center">
+              <File size={48} className="mx-auto text-slate-400 mb-4" />
+              <p className="text-slate-600 mb-4">Preview not available for this file type.</p>
+              <a href={url} download className="bg-blue-600 text-white px-4 py-2 rounded-xl hover:bg-blue-700 transition-colors inline-flex items-center gap-2">
+                <Download size={18} /> Download
+              </a>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================
+// CHAT PANEL
+// ============================================
+const ChatPanel = ({ user, onShowToast, onOpenDocumentViewer, onSeeDoctorInfo, onSeeCase }) => {
+  const [assignedDoctors, setAssignedDoctors] = useState([]);
+  const [rooms, setRooms] = useState([]);
+  const [selectedRoom, setSelectedRoom] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [inputMessage, setInputMessage] = useState('');
+  const [ws, setWs] = useState(null);
+  const [loadingRooms, setLoadingRooms] = useState(true);
+  const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [docType, setDocType] = useState('');
+  const [showDocTypeModal, setShowDocTypeModal] = useState(false);
+  const [hoverPopupOpen, setHoverPopupOpen] = useState(false);
+
+  const receivedMsgIds = useRef(new Set());
+  const popupRef = useRef(null);
+
+  // Close doctor popup when clicking outside
+  useEffect(() => {
+    if (!hoverPopupOpen) return;
+    const handler = (e) => {
+      if (popupRef.current && !popupRef.current.contains(e.target)) {
+        setHoverPopupOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [hoverPopupOpen]);
+
+  // ---- Inline modal state ----
+  const [showDoctorModal, setShowDoctorModal] = useState(false);
+  const [doctorModalData, setDoctorModalData] = useState(null);
+  const [showCaseModal, setShowCaseModal] = useState(false);
+  const [caseModalData, setCaseModalData] = useState(null);
+  const [modalLoading, setModalLoading] = useState(false);
+
+  const fetchAndShowDoctorInfo = async (doctorId) => {
+    setModalLoading(true);
+    setShowDoctorModal(true);
+    try {
+      const res = await api.get('/user/my-doctors/', { params: { limit: 100 } });
+      const docs = res.data || [];
+      const doc = docs.find(d => d.doctor_id === doctorId);
+      if (doc) {
+        setDoctorModalData(doc);
+      } else {
+        onShowToast('Doctor details not found');
+        setShowDoctorModal(false);
+      }
+    } catch (err) {
+      onShowToast('Failed to load doctor details');
+      setShowDoctorModal(false);
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const fetchAndShowCase = async (doctorId, doctorName) => {
+    setModalLoading(true);
+    setShowCaseModal(true);
+    try {
+      const listRes = await api.get('/user/cases', { params: { limit: 100 } });
+      const allCases = listRes.data?.cases || [];
+      const caseObj = allCases.find(c =>
+        c.doctor_id === doctorId ||
+        (c.doctor_name && doctorName && c.doctor_name.toLowerCase().includes(doctorName.toLowerCase()))
+      );
+      if (!caseObj) {
+        onShowToast('No case found for this doctor');
+        setShowCaseModal(false);
+        return;
+      }
+      const detailRes = await api.get('/user/cases', { params: { case_id: caseObj.id } });
+      const caseData = detailRes.data?.cases?.[0];
+      if (caseData) {
+        setCaseModalData(caseData);
+      } else {
+        setShowCaseModal(false);
+      }
+    } catch (err) {
+      onShowToast('Failed to load case details');
+      setShowCaseModal(false);
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type (only images and PDFs)
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
+    if (!allowedTypes.includes(file.type)) {
+      onShowToast('Only images and PDF files are allowed');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    setSelectedFile(file);
+    setDocType('');
+    setShowDocTypeModal(true);
+  };
+
+  // Helper for chat API calls – reads token from sessionStorage
+  const chatApiCall = async (method, endpoint, data = null, params = {}) => {
+    let token = sessionStorage.getItem('access_token');
+    if (!token) {
+      const refreshToken = sessionStorage.getItem('refresh_token');
+      if (refreshToken) {
+        try {
+          const refreshRes = await api.post('/auth/refresh', null, { params: { token: refreshToken } });
+          token = refreshRes.data.access_token;
+          sessionStorage.setItem('access_token', token);
+        } catch (e) {
+          throw new Error('Session expired');
+        }
+      } else {
+        throw new Error('No token available');
+      }
+    }
+    const url = `${endpoint}?token=${token}`;
+    const config = {
+      method,
+      url,
+      params,
+      headers: { 'Content-Type': 'application/json' }
+    };
+    if (data) config.data = data;
+    const response = await api(config);
+    return response;
+  };
+
+  // Helper to get partner name and online status for the selected room
+  const getRoomPartner = (room) => {
+    if (!room) return { name: '', isOnline: false };
+    if (user.type === 'user') {
+      return { name: room.doctor_name, isOnline: room.is_doctor_online };
+    } else {
+      return { name: room.user_name, isOnline: room.is_user_online };
+    }
+  };
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Fetch assigned doctors (for chat sidebar)
+        const myDocsRes = await api.get('/user/my-doctors/', { params: { limit: 100 } });
+        setAssignedDoctors(myDocsRes.data || []);
+        // Fetch chat rooms
+        const roomsRes = await chatApiCall('get', '/chat/rooms');
+        const roomsData = roomsRes.data.rooms || [];
+        setRooms(roomsData);
+      } catch (err) {
+        console.error(err);
+        onShowToast('Failed to load chat data');
+      } finally {
+        setLoadingRooms(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  const createOrGetRoom = async (doctorId) => {
+    try {
+      const res = await chatApiCall('post', '/chat/room', null, { doctor_id: doctorId });
+      const newRoomId = res.data.room_id;
+      const roomsRes = await chatApiCall('get', '/chat/rooms');
+      setRooms(roomsRes.data.rooms || []);
+      const room = roomsRes.data.rooms.find(r => r.id === newRoomId);
+      if (room) setSelectedRoom(room);
+      return newRoomId;
+    } catch (err) {
+      onShowToast('Could not start conversation');
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedRoom) return;
+    const loadMessages = async () => {
+      try {
+        const res = await chatApiCall('get', `/chat/messages/${selectedRoom.id}`, null, { limit: 100 });
+        setMessages(res.data.messages || []);
+        scrollToBottom();
+      } catch (err) { console.error(err); }
+    };
+    loadMessages();
+  }, [selectedRoom]);
+
+  useEffect(() => {
+    if (!selectedRoom) return;
+    const token = sessionStorage.getItem('access_token');
+    if (!token) {
+      onShowToast('Authentication token missing');
+      return;
+    }
+    const wsUrl = `ws://localhost:8000/chat/ws?token=${token}`;
+    const socket = new WebSocket(wsUrl);
+    socket.onopen = () => {
+      socket.send(JSON.stringify({ type: 'join_room', room_id: selectedRoom.id }));
+    };
+    socket.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'message' && msg.room_id === selectedRoom.id) {
+        // Avoid duplicate messages by ID
+        if (receivedMsgIds.current.has(msg.id)) return;
+        receivedMsgIds.current.add(msg.id);
+        setMessages(prev => [...prev, msg]);
+        scrollToBottom();
+      }
+      // ... other message types
+    };
+    socket.onerror = (err) => console.error('WebSocket error', err);
+    setWs(socket);
+    return () => { if (socket.readyState === WebSocket.OPEN) socket.close(); };
+  }, [selectedRoom]);
+
+  const scrollToBottom = () => {
+    setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+  };
+
+  const sendMessage = async () => {
+    if (!inputMessage.trim() && !selectedFile) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      onShowToast('Not connected to chat server');
+      return;
+    }
+    const file = selectedFile;
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        ws.send(JSON.stringify({
+          type: 'message',
+          room_id: selectedRoom.id,
+          message: inputMessage,
+          message_type: file.type.startsWith('image/') ? 'image' : 'file',
+          file_data: e.target.result,
+          file_name: file.name,
+          file_type: docType
+        }));
+        setInputMessage('');
+        setSelectedFile(null);
+        setDocType('');
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      };
+      reader.readAsDataURL(file);
+    } else {
+      ws.send(JSON.stringify({
+        type: 'message',
+        room_id: selectedRoom.id,
+        message: inputMessage,
+        message_type: 'text'
+      }));
+      setInputMessage('');
+    }
+  };
+
+  const getPartnerName = (room) => {
+    if (!room) return '';
+    return user.type === 'user' ? room.doctor_name : room.user_name;
+  };
+
+  if (loadingRooms) return <div className="flex justify-center items-center h-full">Loading conversations...</div>;
+
+  return (
+    <div className="flex h-full bg-white rounded-2xl overflow-hidden border border-slate-200">
+      <div className="w-80 border-r border-slate-200 bg-slate-50 flex flex-col">
+        <div className="p-4 border-b border-slate-200 bg-white">
+          <h2 className="font-bold text-slate-800">Messages</h2>
+          <p className="text-xs text-slate-500 mt-1">Chat with your doctors</p>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {assignedDoctors.length === 0 ? (
+            <div className="p-4 text-center text-slate-500 text-sm">No assigned doctors yet.<br />Assign one from Find Doctors tab.</div>
+          ) : (
+            assignedDoctors.map(doc => {
+              const existingRoom = rooms.find(r =>
+                (user.type === 'user' && r.doctor_id === doc.doctor_id) ||
+                (user.type === 'doctor' && r.user_id === doc.user_id)
+              );
+              const isSelected = selectedRoom && (
+                (user.type === 'user' && selectedRoom.doctor_id === doc.doctor_id) ||
+                (user.type === 'doctor' && selectedRoom.user_id === doc.user_id)
+              );
+              const partnerName = getPartnerName(existingRoom || { doctor_id: doc.doctor_id, doctor_name: doc.name, user_name: doc.name });
+              const isOnline = existingRoom ? (user.type === 'user' ? existingRoom.is_doctor_online : existingRoom.is_user_online) : false;
+              return (
+                <div
+                  key={doc.doctor_id}
+                  onClick={async () => {
+                    if (existingRoom) setSelectedRoom(existingRoom);
+                    else await createOrGetRoom(doc.doctor_id);
+                  }}
+                  className={`p-4 border-b border-slate-100 cursor-pointer hover:bg-slate-100 transition-colors ${isSelected ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''}`}
+                >
+                  <div className="flex justify-between items-center">
+                    <div className="font-semibold text-slate-800">Dr. {doc.name}</div>
+                    <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">{doc.specialty || 'Doctor'}</div>
+                  {existingRoom?.last_message && <div className="text-xs text-slate-400 mt-1 truncate">{existingRoom.last_message}</div>}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {selectedRoom ? (
+        <div className="flex-1 flex flex-col">
+          <div className="p-4 border-b border-slate-200 bg-white flex justify-between items-center relative">
+            {/* Doctor name – click to open action popup */}
+            <div className="relative" ref={popupRef}>
+              <button
+                onClick={() => setHoverPopupOpen(prev => !prev)}
+                className="flex items-center gap-2 group text-left"
+              >
+                <div>
+                  <h3 className="font-bold text-slate-800 group-hover:text-blue-600 transition-colors flex items-center gap-1.5">
+                    Dr. {getPartnerName(selectedRoom)}
+                    {user.type === 'user' && (
+                      <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-bold border border-blue-200">
+                        ▾
+                      </span>
+                    )}
+                  </h3>
+                  <div className="flex items-center gap-1 mt-0.5">
+                    <div className={`w-2 h-2 rounded-full ${
+                      (user.type === 'user' ? selectedRoom.is_doctor_online : selectedRoom.is_user_online)
+                        ? 'bg-green-500' : 'bg-gray-400'
+                    }`}></div>
+                    <p className="text-xs text-slate-500">
+                      {(user.type === 'user' ? selectedRoom.is_doctor_online : selectedRoom.is_user_online) ? 'Online' : 'Offline'}
+                    </p>
+                  </div>
+                </div>
+              </button>
+
+              {/* Click popup for patient-doctor quick actions */}
+              {hoverPopupOpen && user.type === 'user' && (
+                <div className="absolute left-0 top-full mt-2 w-52 bg-slate-900 border border-slate-700 text-white rounded-2xl overflow-hidden shadow-2xl z-[200]">
+                  <div className="px-3 pt-3 pb-1">
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Quick Actions</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setHoverPopupOpen(false);
+                      fetchAndShowDoctorInfo(selectedRoom.doctor_id);
+                    }}
+                    className="flex items-center gap-2.5 w-full px-4 py-3 text-sm font-semibold text-slate-200 hover:bg-white/10 hover:text-white transition-all text-left"
+                  >
+                    <User size={15} className="text-blue-400 shrink-0" />
+                    See Doctor's Info
+                  </button>
+                  <button
+                    onClick={() => {
+                      setHoverPopupOpen(false);
+                      fetchAndShowCase(selectedRoom.doctor_id, getPartnerName(selectedRoom));
+                    }}
+                    className="flex items-center gap-2.5 w-full px-4 py-3 text-sm font-semibold text-slate-200 hover:bg-white/10 hover:text-white transition-all text-left"
+                  >
+                    <FileText size={15} className="text-emerald-400 shrink-0" />
+                    See Case
+                  </button>
+                  <div className="h-2"></div>
+                </div>
+              )}
+            </div>
+
+            {/* Close chat button (X) in upper right */}
+            <button
+              onClick={() => { setSelectedRoom(null); setHoverPopupOpen(false); }}
+              title="Close chat"
+              className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all active:scale-95 shrink-0"
+            >
+              <X size={20} />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
+            {messages.map((msg, idx) => {
+              const isSent = msg.sender_id === user.id;
+              const fileUrl = msg.file_url;
+              const fileName = msg.file_name || (msg.message_type === 'image' ? 'image.jpg' : 'file.pdf');
+              return (
+                <div key={idx} className={`flex ${isSent ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[70%] rounded-2xl px-4 py-2 ${isSent ? 'bg-blue-600 text-white' : 'bg-white border border-slate-200 text-slate-800'}`}>
+                    {msg.message_type === 'image' && fileUrl && (
+                      <div className="cursor-pointer" onClick={() => onOpenDocumentViewer(fileUrl, fileName)}>
+                        <img src={fileUrl} alt="attachment" className="max-w-[200px] rounded-lg mb-2" />
+                      </div>
+                    )}
+                    {msg.message_type === 'file' && fileUrl && (
+                      <button
+                        onClick={() => onOpenDocumentViewer(fileUrl, fileName)}
+                        className="text-sm underline flex items-center gap-1 hover:text-blue-500 transition-colors"
+                      >
+                        <File size={14} /> View file
+                      </button>
+                    )}
+                    {msg.message && <p className="text-sm break-words">{msg.message}</p>}
+                    <div className="text-[10px] opacity-70 mt-1">{new Date(msg.created_at).toLocaleTimeString()}</div>
+                  </div>
+                </div>
+              );
+            })}
+            <div ref={messagesEndRef} />
+          </div>
+          {selectedFile && docType && (
+            <div className="px-4 py-2 bg-blue-50 border-t border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm text-blue-800">
+                <File size={16} className="text-blue-600" />
+                <span className="font-semibold">{selectedFile.name}</span>
+                <span className="text-xs bg-blue-200 px-2 py-0.5 rounded-full text-blue-900 font-bold">{docType}</span>
+              </div>
+              <button
+                onClick={() => {
+                  setSelectedFile(null);
+                  setDocType('');
+                  if (fileInputRef.current) fileInputRef.current.value = '';
+                }}
+                className="p-1 hover:bg-blue-100 rounded-full text-blue-600 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          )}
+          <div className="p-4 border-t border-slate-200 bg-white flex gap-2">
+            <input
+              type="text"
+              value={inputMessage}
+              onChange={e => setInputMessage(e.target.value)}
+              onKeyPress={e => e.key === 'Enter' && sendMessage()}
+              placeholder="Type a message..."
+              className="flex-1 border border-slate-200 rounded-xl px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <label className="p-2 rounded-xl bg-slate-100 cursor-pointer hover:bg-slate-200 transition-colors">
+              <Paperclip size={20} className="text-slate-600" />
+              <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileChange} accept="image/jpeg,image/png,image/gif,image/webp,application/pdf" />
+            </label>
+            <button onClick={sendMessage} className="bg-blue-600 text-white px-4 py-2 rounded-xl hover:bg-blue-700 transition-colors">
+              <Send size={18} />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 flex items-center justify-center text-slate-400">Select a doctor to start chatting</div>
+      )}
+
+      {/* ---- Doctor Info Inline Modal ---- */}
+      {showDoctorModal && (
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setShowDoctorModal(false); }}
+          className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[300] p-4 cursor-pointer"
+        >
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-fade-in cursor-default">
+            {modalLoading ? (
+              <div className="p-12 flex flex-col items-center justify-center gap-3">
+                <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-slate-400 text-sm">Loading doctor info...</p>
+              </div>
+            ) : doctorModalData ? (
+              <>
+                <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-6 text-white">
+                  <div className="flex justify-between items-start">
+                    <div className="flex items-center gap-3">
+                      <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center font-extrabold text-2xl">
+                        {doctorModalData.name?.charAt(0)?.toUpperCase()}
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-extrabold">Dr. {doctorModalData.name}</h2>
+                        <p className="text-blue-200 text-sm font-medium">{doctorModalData.specialty || 'General'}</p>
+                      </div>
+                    </div>
+                    <button onClick={() => setShowDoctorModal(false)} className="p-1.5 text-white/60 hover:text-white hover:bg-white/10 rounded-xl transition-all">
+                      <X size={18} />
+                    </button>
+                  </div>
+                </div>
+                <div className="p-5 space-y-4">
+                  <div className="bg-slate-50 rounded-2xl p-4">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Hospital</p>
+                    <p className="font-semibold text-slate-800">{doctorModalData.hospital_name || doctorModalData.hospital || 'N/A'}</p>
+                    {doctorModalData.hospital_address && <p className="text-xs text-slate-500 mt-0.5">{doctorModalData.hospital_address}</p>}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-3 text-center">
+                      <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-1">Consultation</p>
+                      <p className="font-extrabold text-slate-800 text-lg">₹{doctorModalData.fees || 0}</p>
+                    </div>
+                    <div className="bg-blue-50 border border-blue-100 rounded-2xl p-3 text-center">
+                      <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-1">Appointment</p>
+                      <p className="font-extrabold text-slate-800 text-lg">₹{doctorModalData.appointment_fees || doctorModalData.fees || 0}</p>
+                    </div>
+                  </div>
+                  {(doctorModalData.registered_email || doctorModalData.email) && (
+                    <p className="text-sm text-slate-600 flex items-center gap-2">
+                      <span className="text-base">✉</span> {doctorModalData.registered_email || doctorModalData.email}
+                    </p>
+                  )}
+                  {doctorModalData.phone_number && (
+                    <p className="text-sm text-slate-600 flex items-center gap-2">
+                      <span className="text-base">📞</span> {doctorModalData.phone_number}
+                    </p>
+                  )}
+                  {doctorModalData.rating && (
+                    <p className="text-sm text-slate-600 flex items-center gap-2">
+                      <span className="text-base">⭐</span> Rating: {doctorModalData.rating}
+                    </p>
+                  )}
+                </div>
+                {/* See More footer */}
+                <div className="px-5 pb-5">
+                  <button
+                    onClick={() => {
+                      setShowDoctorModal(false);
+                      onSeeDoctorInfo(doctorModalData.doctor_id);
+                    }}
+                    className="w-full py-2.5 rounded-2xl border-2 border-blue-200 text-blue-600 font-bold text-sm hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all flex items-center justify-center gap-2 group"
+                  >
+                    See Full Profile
+                    <span className="group-hover:translate-x-1 transition-transform">→</span>
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* ---- Case Info Inline Modal ---- */}
+      {showCaseModal && (
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setShowCaseModal(false); }}
+          className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[300] p-4 cursor-pointer"
+        >
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden animate-fade-in cursor-default">
+            {modalLoading ? (
+              <div className="p-12 flex flex-col items-center justify-center gap-3">
+                <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-slate-400 text-sm">Loading case details...</p>
+              </div>
+            ) : caseModalData ? (
+              <>
+                <div className="p-5 border-b border-slate-100 flex justify-between items-start shrink-0">
+                  <div>
+                    <h2 className="text-xl font-extrabold text-slate-800">Case #{caseModalData.case_id}</h2>
+                    <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                      <span className={`px-2.5 py-0.5 text-xs font-bold rounded-full ${
+                        caseModalData.status === 'OPEN' ? 'bg-emerald-100 text-emerald-700' :
+                        caseModalData.status === 'CLOSED' ? 'bg-slate-100 text-slate-600' :
+                        'bg-amber-100 text-amber-700'
+                      }`}>{caseModalData.status}</span>
+                      {caseModalData.diesease && (
+                        <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-purple-100 text-purple-700">{caseModalData.diesease}</span>
+                      )}
+                      <span className="text-xs text-slate-400">{new Date(caseModalData.case_opened_on).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                  <button onClick={() => setShowCaseModal(false)} className="p-2 text-slate-400 hover:text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-full transition-all shrink-0">
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-5 space-y-5">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-slate-50 rounded-xl p-3">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Doctor</p>
+                      <p className="font-semibold text-slate-800 text-sm">Dr. {caseModalData.doctor_name || 'Unassigned'}</p>
+                    </div>
+                    <div className="bg-emerald-50 rounded-xl p-3">
+                      <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-1">Cost</p>
+                      <p className="font-bold text-slate-800">₹{caseModalData.cost || 0}</p>
+                    </div>
+                  </div>
+
+                  {caseModalData.symptoms?.length > 0 && (
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Symptoms</p>
+                      <div className="flex flex-wrap gap-2">
+                        {caseModalData.symptoms.map((s, i) => (
+                          <span key={i} className="px-3 py-1 bg-rose-50 text-rose-700 text-xs font-semibold rounded-full border border-rose-100">
+                            {s.symptom || s.name || s}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Documents</p>
+                    <div className="space-y-2">
+                      {(caseModalData.documents?.user || []).map((d, i) => (
+                        <div key={`u-${i}`} className="flex items-center gap-2 bg-blue-50 rounded-xl p-2.5 text-sm">
+                          <FileText size={14} className="text-blue-600 shrink-0" />
+                          <span className="text-slate-700 flex-1 truncate">{d.type}</span>
+                          <span className="text-[10px] bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded font-bold">Patient</span>
+                        </div>
+                      ))}
+                      {(caseModalData.documents?.doctor || []).map((d, i) => (
+                        <div key={`d-${i}`} className="flex items-center gap-2 bg-emerald-50 rounded-xl p-2.5 text-sm">
+                          <FileText size={14} className="text-emerald-600 shrink-0" />
+                          <span className="text-slate-700 flex-1 truncate">{d.type}</span>
+                          <span className="text-[10px] bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded font-bold">Doctor</span>
+                        </div>
+                      ))}
+                      {(!caseModalData.documents?.user?.length && !caseModalData.documents?.doctor?.length) && (
+                        <p className="text-slate-400 text-sm italic">No documents attached yet</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                {/* See More footer */}
+                <div className="px-5 pb-5 shrink-0 border-t border-slate-100 pt-4">
+                  <button
+                    onClick={() => {
+                      setShowCaseModal(false);
+                      onSeeCase(caseModalData.id, caseModalData.doctor_name);
+                    }}
+                    className="w-full py-2.5 rounded-2xl border-2 border-emerald-200 text-emerald-600 font-bold text-sm hover:bg-emerald-600 hover:text-white hover:border-emerald-600 transition-all flex items-center justify-center gap-2 group"
+                  >
+                    See Full Case Details
+                    <span className="group-hover:translate-x-1 transition-transform">→</span>
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {showDocTypeModal && (
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowDocTypeModal(false);
+              setSelectedFile(null);
+              if (fileInputRef.current) fileInputRef.current.value = '';
+            }
+          }}
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-[150] p-4 cursor-pointer"
+        >
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl relative cursor-default">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-slate-800">Name Your Attachment</h3>
+              <button
+                onClick={() => {
+                  setShowDocTypeModal(false);
+                  setSelectedFile(null);
+                  if (fileInputRef.current) fileInputRef.current.value = '';
+                }}
+                className="p-1.5 text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <p className="text-sm text-slate-500 mb-4">
+              Please provide a name/type for your document (e.g. X-Ray, Blood Report, Prescription) to save it in your records.
+            </p>
+            <input
+              type="text"
+              placeholder="E.g. X-Ray"
+              value={docType}
+              onChange={(e) => setDocType(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all mb-6"
+              autoFocus
+            />
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowDocTypeModal(false);
+                  setSelectedFile(null);
+                  if (fileInputRef.current) fileInputRef.current.value = '';
+                }}
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-medium hover:bg-slate-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (!docType.trim()) {
+                    onShowToast('Please provide a document name');
+                    return;
+                  }
+                  setShowDocTypeModal(false);
+                }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium shadow-sm transition-all"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================
+// MAIN DASHBOARD
+// ============================================
 const UserDashboard = () => {
-  const { logout } = useAuth();
+  const { logout, user: authUser } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
   const [profile, setProfile] = useState({});
   const [editProfile, setEditProfile] = useState({ name: '', email: '' });
@@ -66,33 +965,34 @@ const UserDashboard = () => {
   const [showLocationPicker, setShowLocationPicker] = useState(false);
   const [numNearbyDoctors, setNumNearbyDoctors] = useState(5);
   const [selectedDoctor, setSelectedDoctor] = useState(null);
+  const [selectedHospital, setSelectedHospital] = useState(null);
+  const [isMapModalOpen, setIsMapModalOpen] = useState(false);
+  const [mapHospitalData, setMapHospitalData] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: '', message: '', onConfirm: null, isDestructive: true, confirmText: 'Confirm' });
 
-  const showConfirm = (title, message, onConfirm, confirmText = 'Delete', isDestructive = true) => {
-    setConfirmDialog({ isOpen: true, title, message, onConfirm, confirmText, isDestructive });
-  };
-
+  const [documentViewer, setDocumentViewer] = useState({ isOpen: false, url: '', filename: '' });
   const [caseFilters, setCaseFilters] = useState({ status: '', date: '' });
   const [symptomFilters, setSymptomFilters] = useState({ date: '' });
   const [editingSymptom, setEditingSymptom] = useState(null);
   const [editSymptomData, setEditSymptomData] = useState({ symptom: '', severity: 5 });
-
   const [transactionFilters, setTransactionFilters] = useState({ type: '', date: '' });
   const [editingTransaction, setEditingTransaction] = useState(null);
   const [editNote, setEditNote] = useState('');
-
   const [availableDoctors, setAvailableDoctors] = useState([]);
   const [showBookingForm, setShowBookingForm] = useState(false);
   const [bookingDoctorId, setBookingDoctorId] = useState('');
   const [bookingDate, setBookingDate] = useState('');
   const [bookingStatusFilter, setBookingStatusFilter] = useState('');
-
   const [selectedSymptomToAdd, setSelectedSymptomToAdd] = useState('');
   const [selectedDocumentToAdd, setSelectedDocumentToAdd] = useState('');
 
   const showToast = (msg) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(''), 3000);
+  };
+
+  const showConfirm = (title, message, onConfirm, confirmText = 'Delete', isDestructive = true) => {
+    setConfirmDialog({ isOpen: true, title, message, onConfirm, confirmText, isDestructive });
   };
 
   const loadData = async () => {
@@ -149,7 +1049,20 @@ const UserDashboard = () => {
 
   useEffect(() => { loadData(); }, [activeTab, page, transactionFilters.type, transactionFilters.date, caseFilters.status, caseFilters.date, symptomFilters.date]);
 
-  // Actions
+  useEffect(() => {
+    const fetchProfileOnMount = async () => {
+      try {
+        const res = await api.get('/user/profile');
+        setProfile(res.data);
+        setEditProfile({ name: res.data.name, email: res.data.email });
+      } catch (err) {
+        console.error('Failed to load profile on mount:', err);
+      }
+    };
+    fetchProfileOnMount();
+  }, []);
+
+  // Actions (unchanged)
   const updateProfile = async () => {
     try {
       await api.put('/user/profile', { username: editProfile.name, email: editProfile.email });
@@ -168,9 +1081,9 @@ const UserDashboard = () => {
   };
 
   const connectGoogle = () => {
-    window.location.href = 'http://localhost:8000/auth/google';
+    const token = sessionStorage.getItem('access_token');
+    window.location.href = `http://localhost:8000/auth/google?token=${token}`;
   };
-
   const handleTopUp = async () => {
     if (topUpAmount <= 0) return showToast('Enter a valid amount');
     try {
@@ -181,7 +1094,6 @@ const UserDashboard = () => {
       loadData();
     } catch (err) { showToast('Failed to top up wallet'); }
   };
-
   const updateTransactionNote = async (tId) => {
     try {
       await api.put('/user/transactions', null, { params: { transaction_id: tId, note: editNote } });
@@ -190,7 +1102,6 @@ const UserDashboard = () => {
       loadData();
     } catch (err) { showToast('Failed to update note'); }
   };
-
   const updateSymptom = async (symId) => {
     try {
       await api.put('/user/symptom', editSymptomData, { params: { symptom_id: symId } });
@@ -199,7 +1110,6 @@ const UserDashboard = () => {
       loadData();
     } catch (err) { showToast('Failed to update symptom'); }
   };
-
   const deleteSymptom = async (symId, force = false) => {
     try {
       await api.delete(`/user/symptom/${symId}`, { params: { force } });
@@ -220,14 +1130,12 @@ const UserDashboard = () => {
       }
     }
   };
-
   const handleDeleteSymptomRequest = (symId) => {
     showConfirm('Delete Symptom', 'Are you sure you want to delete this symptom?', () => {
       setConfirmDialog({ isOpen: false });
       deleteSymptom(symId, false);
     });
   };
-
   const deleteDocument = async (docId, force = false) => {
     try {
       await api.delete(`/default/documents/${docId}`, { params: { force } });
@@ -248,14 +1156,12 @@ const UserDashboard = () => {
       }
     }
   };
-
   const handleDeleteDocumentRequest = (docId) => {
     showConfirm('Delete Document', 'Are you sure you want to delete this document?', () => {
       setConfirmDialog({ isOpen: false });
       deleteDocument(docId, false);
     });
   };
-
   const addSymptom = async (e) => {
     e.preventDefault();
     try {
@@ -265,17 +1171,13 @@ const UserDashboard = () => {
       loadData();
     } catch (err) { showToast('Failed to add symptom'); }
   };
-
   const assignDoctor = async (doctorId) => {
     try {
       await api.post(`/user/assign/${doctorId}`);
       showToast('Doctor assigned! New case created.');
       loadData();
-    } catch (err) {
-      showToast(err.response?.data?.detail || 'Failed to assign doctor');
-    }
+    } catch (err) { showToast(err.response?.data?.detail || 'Failed to assign doctor'); }
   };
-
   const closeCase = async (caseId) => {
     try {
       await api.put(`/user/cases/close/${caseId}`);
@@ -283,7 +1185,6 @@ const UserDashboard = () => {
       loadData();
     } catch (err) { showToast('Failed to close case'); }
   };
-
   const reopenCase = async (caseId) => {
     try {
       await api.put(`/user/reopen/${caseId}`);
@@ -291,7 +1192,6 @@ const UserDashboard = () => {
       loadData();
     } catch (err) { showToast('Failed to reopen case'); }
   };
-
   const addSymptomToCase = async (caseId) => {
     if (!selectedSymptomToAdd) return;
     try {
@@ -302,7 +1202,6 @@ const UserDashboard = () => {
       loadData();
     } catch (err) { showToast('Failed to attach symptom'); }
   };
-
   const removeSymptomFromCase = async (caseId, symptomId) => {
     showConfirm('Remove Symptom', 'Remove this symptom from the case?', async () => {
       setConfirmDialog({ isOpen: false });
@@ -314,7 +1213,6 @@ const UserDashboard = () => {
       } catch (err) { showToast('Failed to remove symptom'); }
     });
   };
-
   const addDocumentToCase = async (caseId) => {
     if (!selectedDocumentToAdd) return;
     try {
@@ -325,7 +1223,6 @@ const UserDashboard = () => {
       loadData();
     } catch (err) { showToast('Failed to attach document'); }
   };
-
   const removeDocumentFromCase = async (caseId, docId) => {
     showConfirm('Remove Document', 'Remove this document from the case?', async () => {
       setConfirmDialog({ isOpen: false });
@@ -337,7 +1234,6 @@ const UserDashboard = () => {
       } catch (err) { showToast('Failed to remove document'); }
     });
   };
-
   const updateLocation = async (lat, lon) => {
     try {
       await api.put('/user/location', { latitude: lat, longitude: lon });
@@ -345,7 +1241,6 @@ const UserDashboard = () => {
       loadData();
     } catch (err) { showToast('Failed to save location'); }
   };
-
   const findNearbyDoctors = async (n) => {
     if (!location.lat || !location.lon) {
       showToast('Please set your location first');
@@ -361,19 +1256,27 @@ const UserDashboard = () => {
       showToast('Failed to fetch nearby doctors');
     }
   };
-
   const viewCaseDetails = async (caseId) => {
     try {
       const res = await api.get('/user/cases', { params: { case_id: caseId } });
       const caseData = res.data.cases?.[0];
       if (!caseData) throw new Error('Case not found');
       setSelectedCase(caseData);
-      setCaseSymptoms(caseData.symptoms || []);
       setCaseUserDocs(caseData.documents?.user || []);
       setCaseDoctorDocs(caseData.documents?.doctor || []);
 
+      // Fetch full symptom details (including severity) separately
       const symRes = await api.get('/user/symptom');
-      setAllSymptoms(symRes.data || []);
+      const allUserSymptoms = symRes.data || [];
+      const caseSymptomIds = caseData.symptoms?.map(s => s.id) || [];
+      const enrichedSymptoms = allUserSymptoms
+        .filter(s => caseSymptomIds.includes(s.id))
+        .map(s => ({ id: s.id, name: s.symptom, severity: s.severity }));
+      setCaseSymptoms(enrichedSymptoms);
+
+      // Keep allSymptoms for the dropdown
+      setAllSymptoms(allUserSymptoms);
+
       const docRes = await api.get('/default/documents');
       setAllDocuments(docRes.data || []);
     } catch (err) {
@@ -381,24 +1284,26 @@ const UserDashboard = () => {
       showToast('Error loading case details');
     }
   };
-
   const openBookingForm = async () => {
     setShowBookingForm(true);
     try {
-      // Fetch only assigned doctors for booking
       const myDocsRes = await api.get('/user/my-doctors', { params: { limit: 100 } });
       const myDocsIds = myDocsRes.data?.map(d => d.doctor_id) || [];
-
       const res = await api.get('/user/doctors', { params: { limit: 100 } });
       const allDocs = [];
       (res.data || []).forEach(h => {
-        (h.doctors || []).forEach(d => { allDocs.push(d); });
+        (h.doctors || []).forEach(d => {
+          allDocs.push({
+            ...d,
+            hospital_name: h.hospital_name,
+            hospital_address: h.hospital_address,
+            hospital_phone_number: h.hospital_phone_number
+          });
+        });
       });
-      // Filter the full doctor objects (which contain fees) against myDocsIds
       setAvailableDoctors(allDocs.filter(d => myDocsIds.includes(d.id)));
     } catch (err) { console.error(err); }
   };
-
   const bookAppointment = async (e) => {
     e.preventDefault();
     if (!bookingDoctorId || !bookingDate) return showToast('Please select doctor and date');
@@ -409,11 +1314,8 @@ const UserDashboard = () => {
       setBookingDoctorId('');
       setBookingDate('');
       loadData();
-    } catch (err) {
-      showToast('Booking failed: ' + (err.response?.data?.detail || err.message));
-    }
+    } catch (err) { showToast('Booking failed: ' + (err.response?.data?.detail || err.message)); }
   };
-
   const cancelAppointment = async (appointmentId) => {
     showConfirm('Cancel Appointment', 'Cancel this appointment?', async () => {
       setConfirmDialog({ isOpen: false });
@@ -421,13 +1323,29 @@ const UserDashboard = () => {
         await api.delete(`/user/appointment/${appointmentId}`);
         showToast('Appointment cancelled');
         loadData();
-      } catch (err) {
-        showToast('Failed to cancel: ' + (err.response?.data?.detail || err.message));
-      }
+      } catch (err) { showToast('Failed to cancel: ' + (err.response?.data?.detail || err.message)); }
     });
   };
+  const openDocumentViewer = (url, filename) => {
+    if (!url) return;
+    setDocumentViewer({ isOpen: true, url, filename });
+  };
+  const getUserLocation = async () => {
+    if (location.lat && location.lon) return { lat: location.lat, lon: location.lon };
+    try {
+      const res = await api.get('/user/location');
+      if (res.data.latitude && res.data.longitude) {
+        setLocation({ lat: res.data.latitude, lon: res.data.longitude });
+        return { lat: res.data.latitude, lon: res.data.longitude };
+      }
+    } catch (err) { }
+    return null;
+  };
 
-  // Sub-Renders
+  // ============================================
+  // RENDER FUNCTIONS
+  // ============================================
+
   const renderOverview = () => (
     <div className="space-y-6 animate-fade-in">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -523,9 +1441,18 @@ const UserDashboard = () => {
             <button onClick={updateProfile} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-xl shadow-sm transition-all shadow-blue-200">
               Save Changes
             </button>
-            {!profile.google_email_id && (
-              <button onClick={connectGoogle} className="flex-1 bg-white border border-slate-200 text-slate-700 font-medium py-2.5 rounded-xl hover:bg-slate-50 transition-colors">
-                Connect Google
+            {(!profile.google_email_id || profile.google_email_id === 'Google account is not connected') && (
+              <button
+                onClick={connectGoogle}
+                className="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all shadow-slate-200"
+              >
+                <svg className="h-4.5 w-4.5" viewBox="0 0 24 24">
+                  <path
+                    fill="#ffffff"
+                    d="M12.24 10.285V14.4h6.887c-.648 2.41-2.519 4.114-5.136 4.114A5.99 5.99 0 0 1 8 12.5a5.99 5.99 0 0 1 5.99-6.012c1.49 0 2.845.55 3.9 1.455l3.076-3.075C19.11 3.2 16.733 2 13.99 2 8.138 2 3.39 6.748 3.39 12.6s4.748 10.6 10.6 10.6c7.045 0 10.655-4.832 10.1-10.6H12.24Z"
+                  />
+                </svg>
+                Connect Google Account
               </button>
             )}
           </div>
@@ -548,223 +1475,6 @@ const UserDashboard = () => {
       </Card>
     </div>
   );
-
-  const renderCases = () => {
-    const filteredCases = cases.filter(c =>
-      c.case_id.toString().includes(caseSearch) ||
-      (c.diagnosis && c.diagnosis.toLowerCase().includes(caseSearch.toLowerCase())) ||
-      (c.doctor_name && c.doctor_name.toLowerCase().includes(caseSearch.toLowerCase()))
-    );
-
-    return (
-      <div className="animate-fade-in">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-          <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><FileText className="text-blue-600" /> My Cases</h2>
-          <div className="flex flex-wrap gap-2">
-            <select value={caseFilters.status} onChange={e => { setCaseFilters({ ...caseFilters, status: e.target.value }); setPage(1); }} className="bg-white border border-slate-200 px-3 py-2 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">All Statuses</option>
-              <option value="REQUESTED_BY_USER">Requested By Me</option>
-              <option value="REQUESTED_BY_DOCTOR">REQUESTED By Doctor</option>
-              <option value="OPEN">Open</option>
-              <option value="CLOSED">Closed</option>
-            </select>
-            <input type="date" value={caseFilters.date} onChange={e => { setCaseFilters({ ...caseFilters, date: e.target.value }); setPage(1); }} className="bg-white border border-slate-200 px-3 py-2 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500" />
-            <div className="relative w-full md:w-48">
-              <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
-              <input
-                placeholder="Search case ID/doc..."
-                value={caseSearch}
-                onChange={(e) => setCaseSearch(e.target.value)}
-                className="w-full bg-white border border-slate-200 pl-10 pr-4 py-2 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          {filteredCases.map(c => (
-            <Card key={c.id} className="border-l-4 border-l-blue-500">
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-3">
-                    <h3 className="text-lg font-bold text-slate-800">Case #{c.case_id}</h3>
-                    <StatusBadge status={c.status} />
-                    {c.diesease && <span className="text-sm bg-purple-50 text-purple-700 px-2 py-0.5 rounded-md border border-purple-100 font-medium">{c.diesease}</span>}
-                  </div>
-                  <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-sm text-slate-600">
-                    <p><span className="font-medium">Doctor:</span> Dr. {c.doctor_name || 'Not assigned'}</p>
-                    <p><span className="font-medium">Cost:</span> <span className="text-emerald-600 font-bold">₹{c.cost || 0}</span></p>
-                    <p><span className="font-medium">Opened:</span> {new Date(c.case_opened_on).toLocaleDateString()}</p>
-                    {c.case_updated_on && <p><span className="font-medium">Updated:</span> {new Date(c.case_updated_on).toLocaleDateString()}</p>}
-                  </div>
-                </div>
-                <div className="flex gap-2 w-full md:w-auto">
-                  {c.status === 'OPEN' && <button onClick={() => closeCase(c.id)} className="flex-1 md:flex-none px-4 py-2 bg-rose-50 text-rose-600 font-medium rounded-xl hover:bg-rose-100 transition-colors">Close Case</button>}
-                  {c.status === 'CLOSED' && <button onClick={() => reopenCase(c.id)} className="flex-1 md:flex-none px-4 py-2 bg-blue-50 text-blue-600 font-medium rounded-xl hover:bg-blue-100 transition-colors">Reopen</button>}
-                  <button onClick={() => viewCaseDetails(c.id)} className="flex-1 md:flex-none px-4 py-2 bg-slate-800 text-white font-medium rounded-xl hover:bg-slate-700 transition-colors">Details</button>
-                </div>
-              </div>
-            </Card>
-          ))}
-          {filteredCases.length === 0 && (
-            <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-300">
-              <FileText className="mx-auto h-12 w-12 text-slate-300 mb-3" />
-              <h3 className="text-lg font-medium text-slate-900">No cases found</h3>
-            </div>
-          )}
-          <div className="flex justify-between items-center pt-4 border-t border-slate-200 mt-4">
-            <button disabled={page === 1} onClick={() => setPage(page - 1)} className="px-4 py-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 font-medium disabled:opacity-50">Previous</button>
-            <span className="font-medium text-slate-600">Page {page} of {totalPages}</span>
-            <button disabled={page >= totalPages} onClick={() => setPage(page + 1)} className="px-4 py-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 font-medium disabled:opacity-50">Next</button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderDoctorModal = () => {
-    if (!selectedDoctor) return null;
-    return (
-      <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex justify-center items-center z-50 p-4 animate-fade-in">
-        <div className="bg-white rounded-3xl p-8 max-w-lg w-full shadow-2xl relative">
-          <button onClick={() => setSelectedDoctor(null)} className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full transition-colors"><X size={20} /></button>
-          <div className="flex items-center gap-4 mb-6">
-            <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold text-3xl">{selectedDoctor.name.charAt(0)}</div>
-            <div>
-              <h2 className="text-2xl font-bold text-slate-800">Dr. {selectedDoctor.name}</h2>
-              <p className="text-blue-600 font-medium">{selectedDoctor.specialty || 'General Physician'}</p>
-            </div>
-          </div>
-
-          <div className="space-y-4 mb-6">
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-              <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Contact Info</h4>
-              {selectedDoctor.email && <p className="text-sm text-slate-700 flex items-center gap-2 mb-1">✉️ {selectedDoctor.email}</p>}
-              {selectedDoctor.phone_number && <p className="text-sm text-slate-700 flex items-center gap-2 mb-1">📞 {selectedDoctor.phone_number}</p>}
-              {selectedDoctor.fees && <p className="text-sm text-slate-700 flex items-center gap-2">💰 Fees: ₹{selectedDoctor.fees}</p>}
-            </div>
-
-            <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100">
-              <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2 flex items-center gap-2"><Building2 size={14} /> Hospital Details</h4>
-              <p className="font-bold text-slate-800">{selectedDoctor.hospital_name || selectedDoctor.hospital}</p>
-              <p className="text-sm text-slate-600 mt-1"><MapPin size={14} className="inline mr-1" /> {selectedDoctor.hospital_address || selectedDoctor.address}</p>
-              {selectedDoctor.hospital_phone_number && <p className="text-sm text-slate-600 mt-1">📞 {selectedDoctor.hospital_phone_number}</p>}
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-3">
-            {selectedDoctor.isMyDoctor ? (
-              <>
-                <button onClick={() => { setSelectedDoctor(null); setActiveTab('cases'); }} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition-colors">View Cases</button>
-                <button onClick={() => { setSelectedDoctor(null); setActiveTab('appointments'); openBookingForm(); setBookingDoctorId(selectedDoctor.doctor_id || selectedDoctor.id); }} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3 rounded-xl transition-colors">Book Appointment</button>
-              </>
-            ) : (
-              <button onClick={() => { assignDoctor(selectedDoctor.id); setSelectedDoctor(null); }} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition-colors">Assign & Create Case</button>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderCaseModal = () => {
-    if (!selectedCase) return null;
-    return (
-      <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex justify-center items-center z-50 p-4 animate-fade-in">
-        <div className="bg-white rounded-3xl p-8 max-w-3xl w-full max-h-[90vh] overflow-auto shadow-2xl relative">
-          <button onClick={() => setSelectedCase(null)} className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full transition-colors"><X size={20} /></button>
-
-          <div className="mb-8">
-            <div className="flex justify-between items-start mb-2">
-              <h2 className="text-3xl font-bold text-slate-800">Case #{selectedCase.case_id}</h2>
-              <div className="flex gap-2 pr-10">
-                {selectedCase.status === 'OPEN' && (
-                  <button onClick={() => { closeCase(selectedCase.id); setSelectedCase(null); }} className="px-4 py-1.5 bg-rose-50 text-rose-600 font-medium rounded-xl hover:bg-rose-100 transition-colors text-sm">Close Case</button>
-                )}
-                {selectedCase.status === 'CLOSED' && (
-                  <button onClick={() => { reopenCase(selectedCase.id); setSelectedCase(null); }} className="px-4 py-1.5 bg-blue-50 text-blue-600 font-medium rounded-xl hover:bg-blue-100 transition-colors text-sm">Reopen Case</button>
-                )}
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-3 mb-2">
-              <StatusBadge status={selectedCase.status} />
-              <span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-sm font-medium"><Calendar size={14} className="inline mr-1" /> Opened: {new Date(selectedCase.case_opened_on).toLocaleDateString()}</span>
-              {selectedCase.diesease && <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium"><Activity size={14} className="inline mr-1" /> {selectedCase.diesease}</span>}
-            </div>
-            <p className="text-slate-600 font-medium">Total Cost: <span className="text-emerald-600 font-bold">₹{selectedCase.cost || 0}</span></p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-            <div className="space-y-6">
-              <div>
-                <h3 className="font-bold text-lg text-slate-800 mb-3 flex items-center gap-2"><Activity className="text-rose-500" size={20} /> Symptoms</h3>
-                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
-                  <ul className="space-y-2 mb-4">
-                    {caseSymptoms.map(s => (
-                      <li key={s.id} className="flex justify-between items-center bg-white p-2 px-3 rounded-lg border border-slate-100 shadow-sm">
-                        <div>
-                          <span className="font-medium text-slate-700">{s.name}</span>
-                        </div>
-                        <button onClick={() => removeSymptomFromCase(selectedCase.id, s.id)} className="text-rose-400 hover:text-rose-600 p-1"><X size={14} /></button>
-                      </li>
-                    ))}
-                    {caseSymptoms.length === 0 && <p className="text-sm text-slate-500 italic">No symptoms recorded.</p>}
-                  </ul>
-                  <div className="flex gap-2">
-                    <select value={selectedSymptomToAdd} onChange={e => setSelectedSymptomToAdd(e.target.value)} className="flex-1 bg-white border border-slate-200 p-2 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500">
-                      <option value="">Choose Symptom...</option>
-                      {allSymptoms.map(s => <option key={s.id} value={s.id}>{s.symptom}</option>)}
-                    </select>
-                    <button onClick={() => addSymptomToCase(selectedCase.id)} className="bg-blue-600 text-white px-3 py-2 rounded-xl hover:bg-blue-700 transition-colors"><Plus size={16} /></button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-6">
-              <div>
-                <h3 className="font-bold text-lg text-slate-800 mb-3 flex items-center gap-2"><FileText className="text-blue-500" size={20} /> Documents</h3>
-                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-4">
-                  <div>
-                    <h4 className="text-sm font-semibold text-slate-600 mb-2">From You</h4>
-                    <ul className="space-y-2">
-                      {caseUserDocs.map(d => (
-                        <li key={d.id} className="flex items-center justify-between bg-blue-50 p-2 rounded-lg group">
-                          <a href={d.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-blue-600 hover:underline"><File size={16} /> {d.type}</a>
-                          <button onClick={() => removeDocumentFromCase(selectedCase.id, d.id)} className="text-blue-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity"><X size={14} /></button>
-                        </li>
-                      ))}
-                      {caseUserDocs.length === 0 && <p className="text-xs text-slate-400">None</p>}
-                    </ul>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-semibold text-slate-600 mb-2">From Doctor</h4>
-                    <ul className="space-y-2">
-                      {caseDoctorDocs.map(d => (
-                        <li key={d.id} className="flex items-center bg-emerald-50 p-2 rounded-lg">
-                          <a href={d.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-emerald-600 hover:underline"><File size={16} /> {d.type}</a>
-                        </li>
-                      ))}
-                      {caseDoctorDocs.length === 0 && <p className="text-xs text-slate-400">None</p>}
-                    </ul>
-                  </div>
-                  <div className="pt-2 border-t border-slate-200">
-                    <div className="flex gap-2">
-                      <select value={selectedDocumentToAdd} onChange={e => setSelectedDocumentToAdd(e.target.value)} className="flex-1 bg-white border border-slate-200 p-2 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500">
-                        <option value="">Attach Document...</option>
-                        {allDocuments.map(d => <option key={d.document_id || d.id} value={d.document_id || d.id}>{d.document_type || d.type}</option>)}
-                      </select>
-                      <button onClick={() => addDocumentToCase(selectedCase.id)} className="bg-blue-600 text-white px-3 py-2 rounded-xl hover:bg-blue-700 transition-colors"><Plus size={16} /></button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   const renderSymptoms = () => (
     <div className="animate-fade-in max-w-3xl">
@@ -835,6 +1545,89 @@ const UserDashboard = () => {
     </div>
   );
 
+  const renderCases = () => {
+    const filteredCases = cases.filter(c =>
+      c.case_id.toString().includes(caseSearch) ||
+      (c.diesease && c.diesease.toLowerCase().includes(caseSearch.toLowerCase())) ||
+      (c.doctor_name && c.doctor_name.toLowerCase().includes(caseSearch.toLowerCase()))
+    );
+
+    return (
+      <div className="animate-fade-in">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+          <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><FileText className="text-blue-600" /> My Cases</h2>
+          <div className="flex flex-wrap gap-2">
+            <select
+              value={caseFilters.status}
+              onChange={e => { setCaseFilters({ ...caseFilters, status: e.target.value }); setPage(1); }}
+              className="bg-white border border-slate-200/80 pl-4 pr-10 py-2.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 appearance-none cursor-pointer transition-all font-medium text-slate-700 shadow-sm"
+              style={{
+                backgroundImage: `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%2364748b' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E")`,
+                backgroundPosition: 'right 0.75rem center',
+                backgroundSize: '1.25rem',
+                backgroundRepeat: 'no-repeat'
+              }}
+            >
+              <option value="">All Statuses</option>
+              <option value="REQUESTED_BY_USER">Requested By Me</option>
+              <option value="REQUESTED_BY_DOCTOR">REQUESTED By Doctor</option>
+              <option value="OPEN">Open</option>
+              <option value="CLOSED">Closed</option>
+            </select>
+            <input type="date" value={caseFilters.date} onChange={e => { setCaseFilters({ ...caseFilters, date: e.target.value }); setPage(1); }} className="bg-white border border-slate-200 px-3 py-2 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+            <div className="relative w-full md:w-48">
+              <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
+              <input
+                placeholder="Search case ID/doc..."
+                value={caseSearch}
+                onChange={(e) => setCaseSearch(e.target.value)}
+                className="w-full bg-white border border-slate-200 pl-10 pr-4 py-2 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {filteredCases.map(c => (
+            <Card key={c.id} className="border-l-4 border-l-blue-500">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-lg font-bold text-slate-800">Case #{c.case_id}</h3>
+                    <StatusBadge status={c.status} />
+                    {c.diesease && <span className="text-sm bg-purple-50 text-purple-700 px-2 py-0.5 rounded-md border border-purple-100 font-medium">{c.diesease}</span>}
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-sm text-slate-600">
+                    <p><span className="font-medium">Doctor:</span> Dr. {c.doctor_name || 'Not assigned'}</p>
+                    <p><span className="font-medium">Cost:</span> <span className="text-emerald-600 font-bold">₹{c.cost || 0}</span></p>
+                    <p><span className="font-medium">Opened:</span> {new Date(c.case_opened_on).toLocaleDateString()}</p>
+                    {c.case_updated_on && <p><span className="font-medium">Updated:</span> {new Date(c.case_updated_on).toLocaleDateString()}</p>}
+                  </div>
+                </div>
+                <div className="flex gap-2 w-full md:w-auto">
+                  {c.status === 'OPEN' && <button onClick={() => closeCase(c.id)} className="flex-1 md:flex-none px-4 py-2 bg-rose-50 text-rose-600 font-medium rounded-xl hover:bg-rose-100 transition-colors">Close Case</button>}
+                  {c.status === 'CLOSED' && <button onClick={() => reopenCase(c.id)} className="flex-1 md:flex-none px-4 py-2 bg-blue-50 text-blue-600 font-medium rounded-xl hover:bg-blue-100 transition-colors">Reopen</button>}
+                  <button onClick={() => viewCaseDetails(c.id)} className="flex-1 md:flex-none px-4 py-2 bg-slate-800 text-white font-medium rounded-xl hover:bg-slate-700 transition-colors">Details</button>
+                </div>
+              </div>
+            </Card>
+          ))}
+          {filteredCases.length === 0 && (
+            <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-300">
+              <FileText className="mx-auto h-12 w-12 text-slate-300 mb-3" />
+              <h3 className="text-lg font-medium text-slate-900">No cases found</h3>
+            </div>
+          )}
+          <div className="flex justify-between items-center pt-4 border-t border-slate-200 mt-4">
+            <button disabled={page === 1} onClick={() => setPage(page - 1)} className="px-4 py-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 font-medium disabled:opacity-50">Previous</button>
+            <span className="font-medium text-slate-600">Page {page} of {totalPages}</span>
+            <button disabled={page >= totalPages} onClick={() => setPage(page + 1)} className="px-4 py-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 font-medium disabled:opacity-50">Next</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderAppointments = () => (
     <div className="animate-fade-in">
       <div className="flex justify-between items-center mb-6">
@@ -850,7 +1643,18 @@ const UserDashboard = () => {
           <form onSubmit={bookAppointment} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Select Assigned Doctor</label>
-              <select value={bookingDoctorId} onChange={e => setBookingDoctorId(e.target.value)} className="w-full bg-white border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none" required>
+              <select
+                value={bookingDoctorId}
+                onChange={e => setBookingDoctorId(e.target.value)}
+                className="w-full bg-white border border-slate-200/80 pl-4 pr-10 py-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 appearance-none cursor-pointer transition-all font-medium text-slate-700 shadow-sm"
+                style={{
+                  backgroundImage: `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%2364748b' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E")`,
+                  backgroundPosition: 'right 0.75rem center',
+                  backgroundSize: '1.25rem',
+                  backgroundRepeat: 'no-repeat'
+                }}
+                required
+              >
                 <option value="">-- Choose --</option>
                 {availableDoctors.map(d => <option key={d.id} value={d.id}>Dr. {d.name} (Fees: ₹{d.appointment_fees || d.fees})</option>)}
               </select>
@@ -916,25 +1720,55 @@ const UserDashboard = () => {
         </div>
       </Card>
 
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {doctors.map(h => h.doctors?.map(d => (
-          <Card key={d.id} onClick={() => setSelectedDoctor({ ...d, hospital_name: h.hospital_name, hospital_address: h.hospital_address, hospital_phone_number: h.hospital_phone_number, isMyDoctor: false })} className="flex flex-col cursor-pointer hover:shadow-lg hover:border-blue-300 transition-all">
-            <div className="flex justify-between items-start mb-4">
-              <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold text-xl">{d.name.charAt(0)}</div>
-              <span className="bg-emerald-100 text-emerald-700 px-2 py-1 rounded text-xs font-bold">₹{d.fees} / visit</span>
-            </div>
-            <h3 className="font-bold text-lg text-slate-800 mb-1">Dr. {d.name}</h3>
-            <p className="text-blue-600 font-medium text-sm mb-3">{d.specialty || 'General Physician'}</p>
-            <div className="space-y-2 text-sm text-slate-600 mb-6 flex-1">
-              <p className="flex items-center gap-2"><MapPin size={14} className="text-slate-400" /> {h.hospital_name}</p>
-            </div>
-            <button onClick={(e) => { e.stopPropagation(); assignDoctor(d.id); }} className="w-full bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white font-semibold py-2.5 rounded-xl transition-colors">
-              Assign & Create Case
-            </button>
-          </Card>
-        )))}
-        {(!doctors || doctors.length === 0) && <p className="text-slate-500 col-span-full">No doctors found matching criteria.</p>}
-      </div>
+      {doctors.map((hospital, idx) => (
+        <div key={idx} className="mb-8">
+          <h3 className="text-xl font-bold text-slate-800 mb-3 flex items-center gap-2">
+            <Building2 size={20} className="text-emerald-600" /> {hospital.hospital_name}
+          </h3>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {hospital.doctors.map(doctor => (
+              <Card
+                key={doctor.id}
+                className="flex flex-col transition-all hover:shadow-lg hover:border-blue-300"
+              >
+                <div
+                  className="cursor-pointer flex-1"
+                  onClick={() => {
+                    setSelectedDoctor(doctor);
+                    setSelectedHospital({
+                      name: hospital.hospital_name,
+                      address: hospital.hospital_address,
+                      phone_number: hospital.hospital_phone_number,
+                      lat: hospital.hospital_lat,
+                      lon: hospital.hospital_lon
+                    });
+                  }}
+                >
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold text-xl">{doctor.name.charAt(0)}</div>
+                    <span className="bg-emerald-100 text-emerald-700 px-2 py-1 rounded text-xs font-bold">₹{doctor.fees} / visit</span>
+                  </div>
+                  <h3 className="font-bold text-lg text-slate-800 mb-1">Dr. {doctor.name}</h3>
+                  <p className="text-blue-600 font-medium text-sm mb-3">{doctor.specialty || 'General Physician'}</p>
+                  <div className="space-y-2 text-sm text-slate-600 mb-6">
+                    <p className="flex items-center gap-2"><MapPin size={14} className="text-slate-400" /> {hospital.hospital_name}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    assignDoctor(doctor.id);
+                  }}
+                  className="w-full bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white font-semibold py-2.5 rounded-xl transition-colors mt-2"
+                >
+                  Assign & Create Case
+                </button>
+              </Card>
+            ))}
+          </div>
+        </div>
+      ))}
+      {(!doctors || doctors.length === 0) && <p className="text-slate-500 col-span-full">No doctors found matching criteria.</p>}
     </div>
   );
 
@@ -956,12 +1790,33 @@ const UserDashboard = () => {
         </Card>
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredDocs.map(d => (
-            <Card key={d.doctor_id} onClick={() => setSelectedDoctor({ ...d, isMyDoctor: true })} className="border-t-4 border-t-indigo-500 flex flex-col cursor-pointer hover:shadow-lg hover:border-indigo-300 transition-all">
+            <Card
+              key={d.doctor_id}
+              className="border-t-4 border-t-indigo-500 flex flex-col cursor-pointer hover:shadow-lg hover:border-indigo-300 transition-all"
+              onClick={() => {
+                setSelectedDoctor({
+                  id: d.doctor_id,
+                  name: d.name || "Unknown",
+                  specialty: d.specialty || "General",
+                  email: d.email || "",
+                  phone_number: d.phone_number || "",
+                  fees: d.fees || 0,
+                  appointment_fees: d.appointment_fees || 0,
+                  isMyDoctor: true
+                });
+                setSelectedHospital({
+                  name: d.hospital_name || d.hospital || "Hospital",
+                  address: d.hospital_address || "",
+                  phone_number: d.hospital_phone_number || "",
+                  lat: d.hospital_lat || null,
+                  lon: d.hospital_lon || null
+                });
+              }}
+            >
               <h3 className="font-bold text-lg text-slate-800">Dr. {d.name}</h3>
               <p className="text-indigo-600 font-medium text-sm mb-3">{d.specialty || 'General'}</p>
               <div className="space-y-2 text-sm text-slate-600 mb-4 flex-1">
                 <p className="flex items-center gap-2"><MapPin size={14} className="text-slate-400" /> {d.hospital_name || d.hospital}</p>
-                {d.case_id && <p className="flex items-center gap-2"><FileText size={14} className="text-slate-400" /> Active Case #{d.case_id}</p>}
               </div>
             </Card>
           ))}
@@ -997,7 +1852,7 @@ const UserDashboard = () => {
                 <option value="">All Types</option>
                 <option value="INCOMING">Incoming</option>
                 <option value="OUTGOING">Outgoing</option>
-                <option value="TOPUP">Top-Up</option>
+                <option value="TOP-UP">Top-Up</option>
               </select>
               <input type="date" value={transactionFilters.date} onChange={e => { setTransactionFilters({ ...transactionFilters, date: e.target.value }); setPage(1); }} className="text-sm border border-slate-200 rounded-lg p-1.5 outline-none bg-slate-50" />
             </div>
@@ -1056,16 +1911,25 @@ const UserDashboard = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {documents.map(d => (
                 <div key={d.document_id} className="relative group bg-slate-50 border border-slate-200 p-4 rounded-2xl hover:border-blue-300 hover:shadow-md transition-all flex items-start gap-4">
-                  <a href={d.document_url} target="_blank" rel="noopener noreferrer" className="flex items-start gap-4 flex-1">
+                  <div
+                    onClick={() => openDocumentViewer(d.document_url, d.document_type)}
+                    className="flex items-start gap-4 flex-1 cursor-pointer"
+                  >
                     <div className="p-3 bg-white text-blue-500 rounded-xl shadow-sm group-hover:bg-blue-500 group-hover:text-white transition-colors">
                       <FileText size={24} />
                     </div>
                     <div>
                       <p className="font-semibold text-slate-800 line-clamp-1">{d.document_type}</p>
-                      <p className="text-xs text-slate-500 mt-1">Doc #{d.document_id}</p>
+                      <p className="text-xs text-slate-500 mt-1">Date Uploaded : {d.date}</p>
+                      <p className="text-xs text-slate-500 mt-1">Time : {d.time}</p>
                     </div>
-                  </a>
-                  <button onClick={() => handleDeleteDocumentRequest(d.document_id)} className="p-2 text-slate-400 hover:text-rose-500 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-all absolute right-2 top-2 shadow-sm border border-slate-200"><X size={16} /></button>
+                  </div>
+                  <button
+                    onClick={() => handleDeleteDocumentRequest(d.document_id)}
+                    className="p-2 text-slate-400 hover:text-rose-500 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-all absolute right-2 top-2 shadow-sm border border-slate-200"
+                  >
+                    <X size={16} />
+                  </button>
                 </div>
               ))}
               {documents.length === 0 && <p className="text-slate-500 col-span-full py-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-300">No documents uploaded yet.</p>}
@@ -1154,6 +2018,291 @@ const UserDashboard = () => {
     </div>
   );
 
+  const renderCaseModal = () => {
+    if (!selectedCase) return null;
+
+    // Helper to get severity color
+    const getSeverityColor = (severity) => {
+      if (severity >= 8) return 'bg-red-100 text-red-700 border-red-200';
+      if (severity >= 5) return 'bg-orange-100 text-orange-700 border-orange-200';
+      if (severity >= 3) return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+      return 'bg-green-100 text-green-700 border-green-200';
+    };
+
+    return (
+      <div
+        onClick={(e) => { if (e.target === e.currentTarget) setSelectedCase(null); }}
+        className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex justify-center items-center z-50 p-4 animate-fade-in cursor-pointer"
+      >
+        <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl relative cursor-default">
+          {/* Header */}
+          <div className="flex justify-between items-start p-6 border-b border-slate-200">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-800">Case #{selectedCase.case_id}</h2>
+              <div className="flex flex-wrap gap-2 mt-2">
+                <StatusBadge status={selectedCase.status} />
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-slate-100 text-slate-600">
+                  <Calendar size={12} /> {new Date(selectedCase.case_opened_on).toLocaleDateString()}
+                </span>
+                {selectedCase.diesease && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-700">
+                    <Activity size={12} /> {selectedCase.diesease}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              {selectedCase.status === 'OPEN' && (
+                <button
+                  onClick={() => { closeCase(selectedCase.id); setSelectedCase(null); }}
+                  className="px-4 py-2 bg-rose-50 text-rose-600 font-medium rounded-xl hover:bg-rose-100 transition-colors text-sm"
+                >
+                  Close Case
+                </button>
+              )}
+              {selectedCase.status === 'CLOSED' && (
+                <button
+                  onClick={() => { reopenCase(selectedCase.id); setSelectedCase(null); }}
+                  className="px-4 py-2 bg-blue-50 text-blue-600 font-medium rounded-xl hover:bg-blue-100 transition-colors text-sm"
+                >
+                  Reopen Case
+                </button>
+              )}
+              <button
+                onClick={() => setSelectedCase(null)}
+                className="p-2 text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* Cost Summary */}
+            <div className="bg-gradient-to-r from-emerald-50 to-white rounded-xl p-4 border border-emerald-100">
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-emerald-700">Total Cost</span>
+                <span className="text-2xl font-bold text-emerald-600">₹{selectedCase.cost || 0}</span>
+              </div>
+            </div>
+
+            {/* Two columns */}
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Symptoms Section */}
+              <div className="space-y-4">
+                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                  <Activity className="text-rose-500" size={20} /> Symptoms
+                </h3>
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                  <ul className="space-y-2 mb-4 max-h-60 overflow-y-auto">
+                    {caseSymptoms.map(s => (
+                      <li key={s.id} className="flex justify-between items-center bg-white p-3 rounded-lg border border-slate-100 shadow-sm group">
+                        <div>
+                          <span className="font-medium text-slate-800">{s.name}</span>
+                          <span className={`ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getSeverityColor(s.severity)}`}>
+                            Severity: {s.severity}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => removeSymptomFromCase(selectedCase.id, s.id)}
+                          className="text-rose-400 hover:text-rose-600 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X size={14} />
+                        </button>
+                      </li>
+                    ))}
+                    {caseSymptoms.length === 0 && (
+                      <p className="text-sm text-slate-500 italic text-center py-4">No symptoms recorded.</p>
+                    )}
+                  </ul>
+                  <div className="flex gap-2">
+                    <select
+                      value={selectedSymptomToAdd}
+                      onChange={e => setSelectedSymptomToAdd(e.target.value)}
+                      className="flex-1 bg-white border border-slate-200/80 pl-4 pr-10 py-2.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 appearance-none cursor-pointer transition-all font-medium text-slate-700 shadow-sm"
+                      style={{
+                        backgroundImage: `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%2364748b' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E")`,
+                        backgroundPosition: 'right 0.75rem center',
+                        backgroundSize: '1.25rem',
+                        backgroundRepeat: 'no-repeat'
+                      }}
+                    >
+                      <option value="">Choose Symptom...</option>
+                      {allSymptoms.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.symptom} (Severity: {s.severity})
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => addSymptomToCase(selectedCase.id)}
+                      className="bg-blue-600 text-white px-5 py-2.5 rounded-xl hover:bg-blue-700 active:scale-95 transition-all flex items-center gap-1.5 font-semibold text-sm shadow-md shadow-blue-500/10"
+                    >
+                      <Plus size={16} /> Add
+                    </button>
+                  </div>
+                </div>
+              </div>
+ 
+              {/* Documents Section */}
+              <div className="space-y-4">
+                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                  <FileText className="text-blue-500" size={20} /> Documents
+                </h3>
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-4">
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-600 mb-2 flex items-center gap-1">
+                      <User size={14} /> From You
+                    </h4>
+                    <ul className="space-y-2">
+                      {caseUserDocs.map(d => (
+                        <li key={d.id} className="flex items-center justify-between bg-blue-50 p-2 rounded-lg group">
+                          <button
+                            onClick={() => openDocumentViewer(d.url, d.type)}
+                            className="flex items-center gap-2 text-sm text-blue-600 hover:underline cursor-pointer"
+                          >
+                            <File size={14} /> {d.type}
+                          </button>
+                          <button
+                            onClick={() => removeDocumentFromCase(selectedCase.id, d.id)}
+                            className="text-blue-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <X size={14} />
+                          </button>
+                        </li>
+                      ))}
+                      {caseUserDocs.length === 0 && <p className="text-xs text-slate-400 italic">None</p>}
+                    </ul>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-600 mb-2 flex items-center gap-1">
+                      <Users size={14} /> From Doctor
+                    </h4>
+                    <ul className="space-y-2">
+                      {caseDoctorDocs.map(d => (
+                        <li key={d.id} className="flex items-center bg-emerald-50 p-2 rounded-lg">
+                          <button
+                            onClick={() => openDocumentViewer(d.url, d.type)}
+                            className="flex items-center gap-2 text-sm text-emerald-600 hover:underline cursor-pointer"
+                          >
+                            <File size={14} /> {d.type}
+                          </button>
+                        </li>
+                      ))}
+                      {caseDoctorDocs.length === 0 && <p className="text-xs text-slate-400 italic">None</p>}
+                    </ul>
+                  </div>
+                  <div className="pt-2 border-t border-slate-200">
+                    <div className="flex gap-2">
+                      <select
+                        value={selectedDocumentToAdd}
+                        onChange={e => setSelectedDocumentToAdd(e.target.value)}
+                        className="flex-1 bg-white border border-slate-200/80 pl-4 pr-10 py-2.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 appearance-none cursor-pointer transition-all font-medium text-slate-700 shadow-sm"
+                        style={{
+                          backgroundImage: `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%2364748b' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E")`,
+                          backgroundPosition: 'right 0.75rem center',
+                          backgroundSize: '1.25rem',
+                          backgroundRepeat: 'no-repeat'
+                        }}
+                      >
+                        <option value="">Attach Document...</option>
+                        {allDocuments.map(d => (
+                          <option key={d.document_id || d.id} value={d.document_id || d.id}>
+                            {d.document_type || d.type}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => addDocumentToCase(selectedCase.id)}
+                        className="bg-blue-600 text-white px-5 py-2.5 rounded-xl hover:bg-blue-700 active:scale-95 transition-all flex items-center gap-1.5 font-semibold text-sm shadow-md shadow-blue-500/10"
+                      >
+                        <Plus size={16} /> Add
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const handleSeeDoctorInfoFromChat = async (doctorId) => {
+    try {
+      const res = await api.get('/user/my-doctors/', { params: { limit: 100 } });
+      const docs = res.data || [];
+      setMyDoctors(docs);
+      const doc = docs.find(d => d.doctor_id === doctorId);
+      if (doc) {
+        setSelectedDoctor({
+          id: doc.doctor_id,
+          name: doc.name || 'Unknown',
+          specialty: doc.specialty || 'General',
+          email: doc.email || '',
+          phone_number: doc.phone_number || '',
+          fees: doc.fees || 0,
+          appointment_fees: doc.appointment_fees || 0,
+          isMyDoctor: true
+        });
+        setSelectedHospital({
+          name: doc.hospital_name || doc.hospital || 'Hospital',
+          address: doc.hospital_address || '',
+          phone_number: doc.hospital_phone_number || '',
+          lat: doc.hospital_lat || null,
+          lon: doc.hospital_lon || null
+        });
+        setActiveTab('myDoctors');
+      } else {
+        showToast('Doctor not found in assigned doctors');
+      }
+    } catch (err) {
+      showToast('Failed to load doctor details');
+    }
+  };
+
+  const handleSeeCaseFromChat = async (caseIdOrDoctorId, doctorName) => {
+    try {
+      const res = await api.get('/user/cases', { params: { limit: 100 } });
+      const allCases = res.data?.cases || [];
+      setCases(allCases);
+      
+      // Try to find by specific case ID first, then fallback to doctor_id or doctorName matching
+      let caseObj = allCases.find(c => c.id === caseIdOrDoctorId);
+      if (!caseObj) {
+        caseObj = allCases.find(c =>
+          c.doctor_id === caseIdOrDoctorId ||
+          (c.doctor_name && doctorName && c.doctor_name.toLowerCase().includes(doctorName.toLowerCase()))
+        );
+      }
+
+      if (caseObj) {
+        setActiveTab('cases');
+        await viewCaseDetails(caseObj.id);
+      } else {
+        showToast('No case found');
+      }
+    } catch (err) {
+      showToast('Failed to load case details');
+    }
+  };
+
+  const renderChat = () => {
+    return (
+      <div className="h-[calc(100vh-120px)]">
+        <ChatPanel
+          user={authUser}
+          onShowToast={showToast}
+          onOpenDocumentViewer={openDocumentViewer}
+          onSeeDoctorInfo={handleSeeDoctorInfoFromChat}
+          onSeeCase={handleSeeCaseFromChat}
+        />
+      </div>
+    );
+  };
+
   const tabs = [
     { id: 'overview', name: 'Overview', icon: LayoutDashboard },
     { id: 'cases', name: 'My Cases', icon: FileText },
@@ -1164,30 +2313,31 @@ const UserDashboard = () => {
     { id: 'documents', name: 'Documents', icon: File },
     { id: 'wallet', name: 'Wallet', icon: Wallet },
     { id: 'location', name: 'Location', icon: MapIcon },
+    { id: 'chat', name: 'Chat', icon: MessageCircle },
     { id: 'profile', name: 'Profile', icon: User },
   ];
 
   return (
     <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
-      {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
           <div className="bg-slate-800 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-2 font-medium">
-            <CheckCircle2 className="text-emerald-400" size={18} />
-            {toastMessage}
+            <CheckCircle2 className="text-emerald-400" size={18} /> {toastMessage}
           </div>
         </div>
       )}
 
-      {/* Confirm Dialog */}
       {confirmDialog.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex justify-center items-center z-[100] p-4 animate-fade-in">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl relative">
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setConfirmDialog({ isOpen: false }); }}
+          className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex justify-center items-center z-[100] p-4 animate-fade-in cursor-pointer"
+        >
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl relative cursor-default">
             <h3 className="text-xl font-bold text-slate-800 mb-2">{confirmDialog.title}</h3>
             <p className="text-slate-600 mb-6">{confirmDialog.message}</p>
             <div className="flex justify-end gap-3">
-              <button onClick={() => setConfirmDialog({ isOpen: false })} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-medium hover:bg-slate-200 transition-colors">Cancel</button>
-              <button onClick={confirmDialog.onConfirm} className={`px-4 py-2 text-white rounded-xl font-medium transition-colors ${confirmDialog.isDestructive ? 'bg-rose-500 hover:bg-rose-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
+              <button onClick={() => setConfirmDialog({ isOpen: false })} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-medium hover:bg-slate-200">Cancel</button>
+              <button onClick={confirmDialog.onConfirm} className={`px-4 py-2 text-white rounded-xl font-medium ${confirmDialog.isDestructive ? 'bg-rose-500 hover:bg-rose-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
                 {confirmDialog.confirmText}
               </button>
             </div>
@@ -1195,24 +2345,22 @@ const UserDashboard = () => {
         </div>
       )}
 
-      {/* Sidebar */}
       <div className="w-72 bg-slate-900 text-slate-300 flex flex-col border-r border-slate-800 hidden md:flex z-10 shadow-2xl">
-        <div className="p-6 border-b border-slate-800 flex items-center gap-3">
+        <Link to="/" className="p-6 border-b border-slate-800 flex items-center gap-3 hover:opacity-85 active:scale-95 transition-all">
           <div className="bg-blue-600 p-2 rounded-xl text-white"><Activity size={24} /></div>
           <h1 className="text-xl font-bold text-white tracking-tight">HealthifAI</h1>
-        </div>
+        </Link>
         <div className="flex-1 overflow-y-auto py-6 px-4 space-y-1 custom-scrollbar">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
               <button key={tab.id} onClick={() => { setActiveTab(tab.id); setPage(1); }}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium ${isActive ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 hover:text-white'
-                  }`}>
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium ${isActive ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 hover:text-white'}`}>
                 <Icon size={20} className={isActive ? "text-white" : "text-slate-400"} />
                 {tab.name}
               </button>
-            )
+            );
           })}
         </div>
         <div className="p-4 border-t border-slate-800">
@@ -1222,13 +2370,9 @@ const UserDashboard = () => {
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
-        {/* Header */}
         <header className="bg-white border-b border-slate-200 px-8 py-4 flex justify-between items-center z-10 shadow-sm">
-          <h2 className="text-xl font-bold text-slate-800 hidden md:block">
-            {tabs.find(t => t.id === activeTab)?.name}
-          </h2>
+          <h2 className="text-xl font-bold text-slate-800 hidden md:block">{tabs.find(t => t.id === activeTab)?.name}</h2>
           <div className="flex items-center gap-6 ml-auto">
             <NotificationBell />
             <div className="flex items-center gap-3 pl-6 border-l border-slate-200">
@@ -1243,7 +2387,6 @@ const UserDashboard = () => {
           </div>
         </header>
 
-        {/* Scrollable Content */}
         <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar relative">
           <div className="max-w-7xl mx-auto">
             {activeTab === 'overview' && renderOverview()}
@@ -1256,10 +2399,83 @@ const UserDashboard = () => {
             {activeTab === 'wallet' && renderWallet()}
             {activeTab === 'documents' && renderDocuments()}
             {activeTab === 'location' && renderLocation()}
+            {activeTab === 'chat' && renderChat()}
           </div>
         </main>
       </div>
+
+      {/* Case Modal */}
       {selectedCase && renderCaseModal()}
+
+      {/* Doctor Modal + Map Modal (side‑by‑side) */}
+      {selectedDoctor && (
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) { setSelectedDoctor(null); setSelectedHospital(null); setIsMapModalOpen(false); } }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm transition-all duration-300 cursor-pointer animate-fade-in"
+          style={{ pointerEvents: isMapModalOpen ? 'none' : 'auto' }}
+        >
+          <div
+            className={`bg-white rounded-3xl shadow-2xl transition-all duration-300 cursor-default ${isMapModalOpen ? 'mr-[420px] w-[500px]' : 'w-[500px]'}`}
+            style={{ maxHeight: '90vh', overflow: 'auto' }}
+          >
+            <DoctorDetailsModal
+              doctor={selectedDoctor}
+              hospital={selectedHospital}
+              userLocation={location}
+              onClose={() => { setSelectedDoctor(null); setSelectedHospital(null); setIsMapModalOpen(false); }}
+              onChat={() => { setSelectedDoctor(null); setActiveTab('chat'); }}
+              onMap={async () => {
+                if (!selectedHospital?.lat || !selectedHospital?.lon) {
+                  showToast('Hospital location not available');
+                  return;
+                }
+                const userLoc = await getUserLocation();
+                if (!userLoc) {
+                  showConfirm(
+                    'Location Missing',
+                    'Your location is not set. Would you like to go to the Location tab to update it?',
+                    () => {
+                      // Close the doctor modal and confirm dialog, then go to location
+                      setSelectedDoctor(null);
+                      setSelectedHospital(null);
+                      setConfirmDialog({ isOpen: false });
+                      setActiveTab('location');
+                    },
+                    'Go to Location',
+                    false
+                  );
+                  return;
+                }
+                setMapHospitalData({ name: selectedHospital.name, lat: selectedHospital.lat, lon: selectedHospital.lon });
+                setIsMapModalOpen(true);
+              }}
+            />
+          </div>
+        </div>
+      )}
+      {isMapModalOpen && mapHospitalData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-end pr-4 pointer-events-none">
+          <div className="w-[400px] h-[80vh] bg-white rounded-3xl shadow-2xl pointer-events-auto transition-all duration-300 animate-slide-in-right">
+            <MapModal
+              hospitalLat={mapHospitalData.lat}
+              hospitalLon={mapHospitalData.lon}
+              hospitalName={mapHospitalData.name}
+              userLat={location.lat}
+              userLon={location.lon}
+              onClose={() => setIsMapModalOpen(false)}
+              onGoToLocationTab={() => { setActiveTab('location'); setIsMapModalOpen(false); }}
+            />
+          </div>
+        </div>
+      )}
+
+      {documentViewer.isOpen && (
+        <DocumentViewerModal
+          url={documentViewer.url}
+          filename={documentViewer.filename}
+          onClose={() => setDocumentViewer({ isOpen: false, url: '', filename: '' })}
+        />
+      )}
     </div>
   );
 };

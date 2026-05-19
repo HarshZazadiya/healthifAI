@@ -183,6 +183,7 @@ class Notifications(Base):
     user_id = Column(Integer, nullable = False)
     role = Column(String(100), nullable = False)
     message = Column(String(100), nullable = False)
+    created_at = Column(DateTime, nullable = False, server_default = func.now())
     read = Column(Boolean, default = False)
 
 class UserPayments(Base):
@@ -302,3 +303,43 @@ class ConversationAttachment(Base):
     
     # Relationships
     message = relationship("ConversationMessage", back_populates = "attachments")
+
+# ============================================
+# DOCTOR-HOSPITAL CONVERSATION MODELS
+# ============================================
+
+class DoctorHospitalConversationRoom(Base):
+    __tablename__ = "doctor_hospital_conversation_rooms"
+    
+    id = Column(Integer, primary_key = True, index = True)
+    doctor_id = Column(Integer, ForeignKey("doctors.id"), nullable = False)
+    hospital_id = Column(Integer, ForeignKey("hospitals.id"), nullable = False)
+    created_at = Column(DateTime, server_default = func.now())
+    updated_at = Column(DateTime, server_default = func.now(), onupdate = func.now())
+    is_active = Column(Boolean, default = True)
+    
+    # Relationships
+    doctor = relationship("Doctors", foreign_keys = [doctor_id], backref = "hospital_rooms")
+    hospital = relationship("Hospitals", foreign_keys = [hospital_id], backref = "doctor_rooms")
+    messages = relationship("DoctorHospitalConversationMessage", back_populates = "room", cascade = "all, delete")
+    
+    # Unique constraint
+    __table_args__ = (
+        UniqueConstraint('doctor_id', 'hospital_id', name = 'unique_doctor_hospital_conversation'),
+    )
+
+class DoctorHospitalConversationMessage(Base):
+    __tablename__ = "doctor_hospital_conversation_messages"
+    
+    id = Column(Integer, primary_key = True, index = True)
+    room_id = Column(Integer, ForeignKey("doctor_hospital_conversation_rooms.id"), nullable = False)
+    sender_id = Column(Integer, nullable = False)
+    sender_type = Column(String(20), nullable = False) # "doctor" or "hospital"
+    content = Column(Text, nullable = True)
+    message_type = Column(String(20), default = "text")
+    attachment_url = Column(String(500), nullable = True)
+    is_read = Column(Boolean, default = False)
+    created_at = Column(DateTime, server_default = func.now())
+    
+    # Relationships
+    room = relationship("DoctorHospitalConversationRoom", back_populates = "messages")

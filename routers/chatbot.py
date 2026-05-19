@@ -8,7 +8,7 @@ from typing import Annotated, Optional, List
 from fastapi import APIRouter, Depends, HTTPException
 from models import Users, ChatThread, ChatMessage
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from AI.user_config import get_user_sensitive_tools, update_user_sensitive_tools
+from AI.config.user_config import get_user_sensitive_tools, update_user_sensitive_tools
 from utils.dependencies import db_dependency
 
 router = APIRouter(

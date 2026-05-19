@@ -3,6 +3,7 @@ import uvicorn
 import requests
 import urllib.parse
 from typing import Annotated
+from jose import jwt, JWTError
 from logs.logging import logger
 from database import SessionLocal
 from database import engine, Base
@@ -142,7 +143,13 @@ except Exception as e:
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -156,7 +163,7 @@ app.include_router(user.router)
 app.include_router(doctor.router)
 app.include_router(hospital.router)
 app.include_router(admin.router)
-# app.include_router(chat.router)
+app.include_router(chat.router)
 
 # Google OAuth constants
 CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
@@ -164,28 +171,36 @@ CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
 
 @app.get("/")
-async def root():
-    return FileResponse("frontend/frontend.html")
+async def health_check():
+    return {"message" : "Health is good"}
 
-@app.get("/docviewer")
-async def docviewer():
-    return FileResponse("frontend/document_viewer.html")
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = os.getenv("ALGORITHM")
 
 @app.get("/auth/google")
 async def google_auth(
-    token : Annotated[str, Depends(oauth2_bearer)] = None, 
-    requester : requester_dependency = None,
-    db : db_dependency = None,
+    request: Request,
+    token: str = None,
+    db: db_dependency = None,
 ):
-    # If no requester from header, try token from query param
-    if requester is None and token:
-        requester = await get_current_requester_by_token(token, db)
-    
-    if not requester:
+    # Try getting token from query parameters first, then check Authorization header
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+
+    if not token:
         raise HTTPException(status_code = 401, detail = "Authentication required")
-    
-    user_id = requester.get("id")
-    user_role = requester.get("role")
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms = [ALGORITHM])
+        user_id = payload.get("id")
+        user_role = payload.get("role")
+        if not user_id or not user_role:
+            raise HTTPException(status_code = 401, detail = "Invalid token details")
+    except JWTError:
+        raise HTTPException(status_code = 401, detail = "Invalid token")
+
     state = f"{user_id}_{user_role}"
     
     params = {
@@ -241,7 +256,7 @@ async def google_callback(request: Request, db : db_dependency):
     if "access_token" not in google_tokens:
         return {"error" : "Failed to get access token", "details" : google_tokens}
     
-    user_info = get_google_user(google_tokens["access_token"])
+    user_info = await get_google_user(google_tokens["access_token"])
     logger.info(f"Google user info : {user_info}")
     logger.info(f"Google Tokens : {google_tokens}")
 
@@ -258,10 +273,10 @@ async def google_callback(request: Request, db : db_dependency):
     try:
         jwt_token = await handle_google_login(requester.email, actual_user_id, actual_role, user_google_email, user_google_name, user_google_pic, google_tokens.get("access_token"), google_tokens.get("refresh_token"), db)
         
-        streamlit_url = os.getenv("STREAMLIT_URL", "http://localhost:8501")
+        react_url = os.getenv("FRONTEND_URL")
         
         # Create redirect response
-        response = RedirectResponse(url = streamlit_url, status_code = 302)
+        response = RedirectResponse(url = react_url, status_code = 302)
         
         # Set HTTP-only cookie
         response.set_cookie(
@@ -280,12 +295,6 @@ async def google_callback(request: Request, db : db_dependency):
         return {"error" : e.detail}
     finally:
         db.close()
-
-@app.get("/health")
-async def health_check():
-    return {
-        "status" : "healthy"
-    }
 
 @app.get("/connect-status")
 async def check_google_connect_status(db : db_dependency, user_id : int, user_role : str):

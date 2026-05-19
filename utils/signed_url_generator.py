@@ -1,14 +1,14 @@
 import os
-from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
-from datetime import datetime, timedelta
-from fastapi import HTTPException
 from pathlib import Path
+from fastapi import HTTPException
+from datetime import datetime, timedelta
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 # Create a serializer with a secret key
 SECRET_SIGN_KEY_FOR_URL = os.getenv("SECRET_SIGN_KEY_FOR_URL")
 serializer = URLSafeTimedSerializer(SECRET_SIGN_KEY_FOR_URL) 
 
-async def generate_signed_url(file_path : str, user_id : int, user_role : str, doc_id : int, expiration_seconds : int = 3600):
+async def generate_signed_url(file_path : str, user_id : int, user_role : str, doc_id : int = 0, expiration_seconds : int = 3600, directory : str = "documents"):
     """
     Generate a signed URL for secure file access
     
@@ -28,9 +28,9 @@ async def generate_signed_url(file_path : str, user_id : int, user_role : str, d
         "user_role" : user_role,
         "doc_id" : doc_id,
         "original_filename" : Path(file_path).name,
+        "directory" : directory,
         "exp" : (datetime.now() + timedelta(seconds = expiration_seconds)).isoformat()
     }
-    
     # Generate signature
     token = serializer.dumps(payload)
     

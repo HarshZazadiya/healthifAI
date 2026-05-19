@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
-import { Bell, Check, CheckCheck, Trash2, X } from 'lucide-react';
+import { Bell, Check, CheckCheck, Trash2 } from 'lucide-react';
 
 const NotificationBell = () => {
   const [notifications, setNotifications] = useState([]);
@@ -10,9 +10,10 @@ const NotificationBell = () => {
   const fetchNotifications = async () => {
     try {
       const res = await api.get('/default/notifications');
+      // Backend returns 'read' field, not 'is_read'
       setNotifications(res.data.notifications || []);
     } catch (err) {
-      console.error(err);
+      console.error('Failed to fetch notifications:', err);
     }
   };
 
@@ -35,30 +36,42 @@ const NotificationBell = () => {
   const markAsRead = async (id) => {
     try {
       await api.put('/default/notification', null, { params: { notification_id: id } });
-      fetchNotifications();
-    } catch (err) {}
+      // Refresh to get latest 'read' status from server
+      await fetchNotifications();
+    } catch (err) {
+      console.error('Failed to mark as read:', err);
+      // Refresh anyway to sync state if error occurred (e.g., 404)
+      await fetchNotifications();
+    }
   };
 
   const markAllAsRead = async () => {
     try {
       await api.put('/default/notification');
-      fetchNotifications();
-    } catch (err) {}
+      await fetchNotifications();
+    } catch (err) {
+      console.error('Failed to mark all as read:', err);
+      await fetchNotifications();
+    }
   };
 
   const deleteNotif = async (id) => {
     try {
       await api.delete(`/default/notification/${id}`);
-      fetchNotifications();
-    } catch (err) {}
+      await fetchNotifications();
+    } catch (err) {
+      console.error('Failed to delete notification:', err);
+      await fetchNotifications();
+    }
   };
 
-  const unreadCount = notifications.filter(n => !n.is_read).length;
+  // Use 'read' field instead of 'is_read'
+  const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
     <div className="relative" ref={dropdownRef}>
-      <button 
-        onClick={() => setShow(!show)} 
+      <button
+        onClick={() => setShow(!show)}
         className="relative p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-colors"
       >
         <Bell size={24} />
@@ -83,13 +96,24 @@ const NotificationBell = () => {
               <div className="p-8 text-center text-slate-500 text-sm">No notifications yet.</div>
             ) : (
               notifications.map(notif => (
-                <div key={notif.id} className={`p-4 border-b border-slate-50 last:border-0 relative group flex gap-3 ${!notif.is_read ? 'bg-blue-50/50' : 'bg-white hover:bg-slate-50 transition-colors'}`}>
+                <div
+                  key={notif.id}
+                  className={`p-4 border-b border-slate-50 last:border-0 relative group flex gap-3 transition-colors ${
+                    !notif.read
+                      ? 'bg-blue-50/70 hover:bg-blue-100/80'
+                      : 'bg-gray-50/50 hover:bg-gray-100/70'
+                  }`}
+                >
                   <div className="flex-1">
-                    <p className={`text-sm ${!notif.is_read ? 'font-medium text-slate-800' : 'text-slate-600'}`}>{notif.message}</p>
-                    <p className="text-xs text-slate-400 mt-1">{new Date(notif.created_at).toLocaleString()}</p>
+                    <p className={`text-sm ${!notif.read ? 'font-medium text-slate-800' : 'text-slate-600'}`}>
+                      {notif.message}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      {new Date(notif.created_at).toLocaleString()}
+                    </p>
                   </div>
                   <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {!notif.is_read && (
+                    {!notif.read && (
                       <button onClick={() => markAsRead(notif.id)} title="Mark as read" className="p-1.5 text-blue-500 hover:bg-blue-100 rounded-lg transition-colors">
                         <Check size={14} />
                       </button>
