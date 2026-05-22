@@ -1,10 +1,11 @@
+import os
 from fastapi import BackgroundTasks, Query
 from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel
 from logs.logging import logger
 from services.availibility import set_availibility_for_doctor, set_limit_for_doctor
-from services.notifcation import create_notification
+from services.notification import create_notification
 from utils.helper import bcrypt_context
 from utils.hospital_location_getter import hospital_location_getter
 from utils.signed_url_generator import generate_signed_url
@@ -12,12 +13,15 @@ from fastapi import File, HTTPException, APIRouter, UploadFile
 from utils.dependencies import hospital_dependency, db_dependency
 from services.document_handling import add_document, update_policy
 from models import Cases, DoctorPayments, Hospitals, Doctors, Symptoms, Users, Appointments, AssignedDoctors, Wallet, Documents
+from urllib.parse import urljoin
+from sqlalchemy import func, and_
 
 router = APIRouter(
     prefix = "/hospital",
     tags = ["hospital"]
 )
 
+BASE_URL = os.getenv("BASE_URL")
 # =====================================================================================
 # PYDANTIC MODELS
 # =====================================================================================
@@ -76,8 +80,10 @@ async def see_profile(hospital : hospital_dependency, db : db_dependency):
         "address" : hospital.address,
         "city" : hospital.city,
         "state" : hospital.state,
+        "charges" : hospital.charges,
+        "total_cases" : hospital.cases,
         "zip" : hospital.zip,
-        "phone" : hospital.phone_number,
+        "phone_number" : hospital.phone_number,
         "google_email_id" : hospital.google_email_id
     }
 
@@ -114,138 +120,298 @@ async def get_all_doctors(
             "name" : doc.name,
             "registered_email" : doc.email,
             "specialty" : doc.specialty,
+            "case_limit" : doc.limit,
+            "availability" : doc.availability,
+            "phone_number" : doc.phone_number,
+            "current_cases" : doc.current_cases,
             "google_email_id" : doc.google_email_id
         })
     return data
 
-@router.get("/users", status_code = 200)
+@router.get("/users", status_code=200)
 async def get_all_users(
-    hospital : hospital_dependency, 
-    db : db_dependency,
-    page : int = Query(1, ge = 1),
-    limit : int = Query(20, ge = 1, le = 100),
-    status : Optional[str] = None,  # Optional filter
-    user_name : Optional[str] = None,
-    doctor_name : Optional[str] = None
+    hospital: hospital_dependency,
+    db: db_dependency,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    status: Optional[str] = None,
+    user_name: Optional[str] = None,
+    doctor_name: Optional[str] = None,
 ):
-    # Base query
-    query = db.query(Cases, Users, Doctors).join(Users, Cases.user_id == Users.id).outerjoin(Doctors, Cases.doctor_id == Doctors.id).filter(Cases.hospital_id == hospital.id)
-    
-    # Optional status filter
+    # Subquery: most recent case per user in this hospital
+    latest_case_subq = (
+        db.query(
+            Cases.user_id,
+            func.max(Cases.date).label("latest_date")
+        )
+        .filter(Cases.hospital_id == hospital.id)
+        .group_by(Cases.user_id)
+        .subquery()
+    )
+
+    # Main query: join users with their latest case
+    query = (
+        db.query(Users, Cases, Doctors)
+        .join(latest_case_subq, Users.id == latest_case_subq.c.user_id)
+        .join(Cases, and_(
+            Cases.user_id == latest_case_subq.c.user_id,
+            Cases.date == latest_case_subq.c.latest_date
+        ))
+        .outerjoin(Doctors, Cases.doctor_id == Doctors.id)
+        .filter(Cases.hospital_id == hospital.id)
+    )
+
+    # Apply filters
     if status:
         query = query.filter(Cases.status == status)
     if user_name:
         query = query.filter(Users.name == user_name.title())
     if doctor_name:
         query = query.filter(Doctors.name == doctor_name.title())
-    
-    # Get total count for pagination
+
     total = query.count()
-    
-    # Get paginated results
-    cases = query.offset((page - 1) * limit).limit(limit).all()
-    
+    results = query.order_by(Cases.date.desc()).offset((page-1)*limit).limit(limit).all()
+
     data = []
-    for case, user, doctor in cases:
+    for user, case, doctor in results:
         data.append({
-            "user_id" : user.id,
-            "user_name" : user.name,
-            "user_email" : user.email,
-            "user_role" : user.role,
-            "doctor_id" : doctor.id if doctor else None,
-            "doctor_name" : doctor.name if doctor else "Not assigned",
-            "doctor_email" : doctor.email if doctor else None,
-            "doctor_specialty" : doctor.specialty if doctor else None,
-            "case_id" : case.id,
-            "case_disease" : case.diesease,
-            "case_status" : case.status,
-            "case_date" : case.date.isoformat() if case.date else None,
+            "user_id": user.id,
+            "user_name": user.name,
+            "user_email": user.email,
+            "lat": user.lat,
+            "lon": user.lon,
+            "user_role": user.role,
+            "doctor_id": doctor.id if doctor else None,
+            "doctor_name": doctor.name if doctor else "Not assigned",
+            "doctor_email": doctor.email if doctor else None,
+            "doctor_specialty": doctor.specialty if doctor else None,
+            "case" : case.id,
+            "case_id": case.case_id,
+            "case_disease": case.diesease,
+            "case_status": case.status,
+            "case_date": case.date.isoformat() if case.date else None,
         })
-    
+
     return {
-        "total" : total,
-        "page" : page,
-        "limit" : limit,
-        "data" : data
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "data": data
     }
 
 @router.get("/cases", status_code = 200)
-async def get_all_cases(
-    hospital : hospital_dependency, 
-    db : db_dependency, 
-    status : Optional[str] = None, 
-    date : Optional[datetime] = None, 
-    page : int = Query(1, ge = 1), 
-    limit : int = Query(20, ge = 1, le = 100),
-    user_name : Optional[str] = None,
-    doctor_name : Optional[str] = None
+async def get_hospital_cases(
+    hospital: hospital_dependency,
+    db: db_dependency,
+    status: Optional[str] = None,
+    from_date: Optional[datetime] = None,
+    to_date: Optional[datetime] = None,
+    doctor_id: Optional[int] = None,
+    case_id: Optional[int] = None,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
 ):
+    """
+    Get all cases belonging to the hospital.
+    Supports filtering by status, date range, doctor, and a specific case_id.
+    Returns paginated results with user info, doctor info, symptoms, and signed document URLs.
+    """
+    # Base query: all cases of this hospital
     query = db.query(Cases).filter(Cases.hospital_id == hospital.id)
+
+    # If case_id is provided, return single case (ignore pagination)
+    if case_id:
+        case = query.filter(Cases.id == case_id).first()
+        if not case:
+            raise HTTPException(404, "Case not found")
+
+        # Fetch user
+        user = db.query(Users).filter(Users.id == case.user_id).first()
+        if not user:
+            raise HTTPException(404, "User not found")
+
+        # Fetch doctor if assigned
+        doctor = None
+        if case.doctor_id:
+            doctor = db.query(Doctors).filter(Doctors.id == case.doctor_id).first()
+
+        # Collect document IDs
+        all_doc_ids = set(case.user_doc_ids or []) | set(case.doctor_doc_ids or [])
+        documents = []
+        doc_map = {}
+        if all_doc_ids:
+            documents = db.query(Documents).filter(Documents.id.in_(all_doc_ids)).all()
+            for doc in documents:
+                # Generate signed URL for each document using hospital's credentials
+                signed_path = await generate_signed_url(
+                    doc.document_path, hospital.id, "hospital", doc.id
+                )
+                doc_map[doc.id] = {
+                    "id": doc.id,
+                    "url": urljoin(BASE_URL, signed_path),
+                    "type": doc.type,
+                    "date": doc.date.isoformat(),
+                }
+
+        # Fetch symptoms
+        symptom_ids = set(case.symptom_ids or [])
+        symptoms = []
+        symptom_map = {}
+        if symptom_ids:
+            symptoms = db.query(Symptoms).filter(Symptoms.id.in_(symptom_ids)).all()
+            symptom_map = {s.id: {"name": s.symptom, "severity": s.severity} for s in symptoms}
+
+        # Build symptoms list for this case
+        case_symptoms = []
+        if case.symptom_ids:
+            for s_id in case.symptom_ids:
+                if s_id in symptom_map:
+                    case_symptoms.append({
+                        "id": s_id,
+                        "name": symptom_map[s_id]["name"],
+                        "severity": symptom_map[s_id]["severity"],
+                    })
+
+        result = [{
+            "id": case.id,
+            "case_id": case.case_id,
+            "status": case.status,
+            "user": {
+                "id": user.id,
+                "name": user.name,
+                "email": user.email,
+                "phone_number": user.phone_number,
+                "lat": user.lat,
+                "lon": user.lon,
+            },
+            "doctor": {
+                "id": doctor.id if doctor else None,
+                "name": doctor.name if doctor else "Not assigned",
+                "email": doctor.email if doctor else None,
+                "specialty": doctor.specialty if doctor else None,
+            } if doctor else None,
+            "case_opened_on": case.date.isoformat(),
+            "case_updated_on": case.last_updated.isoformat() if case.last_updated else None,
+            "documents": {
+                "user": [doc_map.get(doc_id) for doc_id in (case.user_doc_ids or []) if doc_map.get(doc_id)],
+                "doctor": [doc_map.get(doc_id) for doc_id in (case.doctor_doc_ids or []) if doc_map.get(doc_id)],
+            },
+            "symptoms": case_symptoms,
+        }]
+
+        return {
+            "total": 1,
+            "limit": limit,
+            "page": 1,
+            "cases": result,
+        }
+
+    # --- Paginated multiple cases ---
     if status:
         query = query.filter(Cases.status == status)
-    if date:
-        query = query.filter(Cases.date == date)
-    if user_name:
-        query = query.join(Users, Cases.user_id == Users.id).filter(Users.name == user_name.title())
-    if doctor_name:
-        query = query.join(Doctors, Cases.doctor_id == Doctors.id).filter(Doctors.name == doctor_name.title())
-    
+    if from_date:
+        query = query.filter(Cases.date >= from_date)
+    if to_date:
+        query = query.filter(Cases.date <= to_date)
+    if doctor_id:
+        query = query.filter(Cases.doctor_id == doctor_id)
+
     total = query.count()
-    cases = query.offset((page - 1) * limit).limit(limit).all()
-    
+    cases = query.order_by(Cases.date.desc()).offset((page - 1) * limit).limit(limit).all()
+
     if not cases:
-        return {"total": 0, "page": page, "data": []}
-    
-    user_ids = {c.user_id for c in cases}
-    doctor_ids = {c.doctor_id for c in cases if c.doctor_id}
-    
-    symptom_ids = set()
-    doc_ids = set()
+        return {
+            "total": 0,
+            "limit": limit,
+            "page": page,
+            "cases": [],
+        }
+
+    # Batch fetch related data
+    user_ids = list({c.user_id for c in cases})
+    doctor_ids = list({c.doctor_id for c in cases if c.doctor_id})
+
+    users = {u.id: u for u in db.query(Users).filter(Users.id.in_(user_ids)).all()}
+    doctors = {d.id: d for d in db.query(Doctors).filter(Doctors.id.in_(doctor_ids)).all()}
+
+    # Collect all document and symptom IDs
+    all_doc_ids = set()
+    all_symptom_ids = set()
     for case in cases:
-        if case.symptom_ids:
-            symptom_ids.update(case.symptom_ids)
-        if case.user_doc_ids:
-            doc_ids.update(case.user_doc_ids)
-        if case.doctor_doc_ids:
-            doc_ids.update(case.doctor_doc_ids)
-    
-    users = {u.id: u for u in db.query(Users).filter(Users.id.in_(user_ids)).all()} if user_ids else {}
-    doctors = {d.id: d for d in db.query(Doctors).filter(Doctors.id.in_(doctor_ids)).all()} if doctor_ids else {}
-    symptoms = {s.id: s for s in db.query(Symptoms).filter(Symptoms.id.in_(symptom_ids)).all()} if symptom_ids else {}
-    documents = {d.id: d for d in db.query(Documents).filter(Documents.id.in_(doc_ids)).all()} if doc_ids else {}
-    
-    data = []
+        all_doc_ids.update(case.user_doc_ids or [])
+        all_doc_ids.update(case.doctor_doc_ids or [])
+        all_symptom_ids.update(case.symptom_ids or [])
+
+    # Fetch documents and generate signed URLs
+    doc_map = {}
+    if all_doc_ids:
+        documents = db.query(Documents).filter(Documents.id.in_(all_doc_ids)).all()
+        for doc in documents:
+            signed_path = await generate_signed_url(
+                doc.document_path, hospital.id, "hospital", doc.id
+            )
+            doc_map[doc.id] = {
+                "id": doc.id,
+                "url": urljoin(BASE_URL, signed_path),
+                "type": doc.type,
+                "date": doc.date.isoformat(),
+            }
+
+    # Fetch symptoms
+    symptom_map = {}
+    if all_symptom_ids:
+        symptoms = db.query(Symptoms).filter(Symptoms.id.in_(all_symptom_ids)).all()
+        symptom_map = {s.id: {"name": s.symptom, "severity": s.severity} for s in symptoms}
+
+    # Build result list
+    result = []
     for case in cases:
         user = users.get(case.user_id)
         doctor = doctors.get(case.doctor_id) if case.doctor_id else None
-        
-        case_symptoms = [symptoms[sid] for sid in case.symptom_ids  if sid in symptoms] if case.symptom_ids else []
-        user_docs = [documents[doc_id] for doc_id in case.user_doc_ids  if doc_id in documents] if case.user_doc_ids else []
-        doctor_docs = [documents[doc_id] for doc_id in case.doctor_doc_ids  if doc_id in documents] if case.doctor_doc_ids else []
-        
-        data.append({
-            "id" : case.id,
-            "user_id" : user.id if user else None,
-            "user_name":  user.name if user else "Unknown",
-            "user_email" : user.email if user else None,
-            "user_google_linked_email" : user.google_email_id if user and user.google_email_id else "Google account is not connected",
-            "disease" : case.diesease,
-            "doctor_id" : doctor.id if doctor else None,
-            "doctor_name" : doctor.name if doctor else "Not assigned",
-            "doctor_email" : doctor.email if doctor else None,
-            "doctor_google_linked_email" : doctor.google_email_id if doctor and doctor.google_email_id else "Google account is not connected",
-            "symptoms" : case_symptoms,
-            "user_documents" : user_docs,
-            "doctor_documents" : doctor_docs,
-            "status" : case.status,
-            "date" : case.date.isoformat() if case.date else None
+
+        # Build symptoms for this case
+        case_symptoms = []
+        if case.symptom_ids:
+            for s_id in case.symptom_ids:
+                if s_id in symptom_map:
+                    case_symptoms.append({
+                        "id": s_id,
+                        "name": symptom_map[s_id]["name"],
+                        "severity": symptom_map[s_id]["severity"],
+                    })
+
+        result.append({
+            "id": case.id,
+            "case_id": case.case_id,
+            "status": case.status,
+            "user": {
+                "id": user.id if user else None,
+                "name": user.name if user else "Unknown",
+                "email": user.email if user else None,
+                "phone_number": user.phone_number if user else None,
+                "lat": user.lat if user else None,
+                "lon": user.lon if user else None,
+            },
+            "doctor": {
+                "id": doctor.id if doctor else None,
+                "name": doctor.name if doctor else "Not assigned",
+                "email": doctor.email if doctor else None,
+                "specialty": doctor.specialty if doctor else None,
+            } if doctor else None,
+            "case_opened_on": case.date.isoformat(),
+            "case_updated_on": case.last_updated.isoformat() if case.last_updated else None,
+            "documents": {
+                "user": [doc_map.get(doc_id) for doc_id in (case.user_doc_ids or []) if doc_map.get(doc_id)],
+                "doctor": [doc_map.get(doc_id) for doc_id in (case.doctor_doc_ids or []) if doc_map.get(doc_id)],
+            },
+            "symptoms": case_symptoms,
         })
-    
+
     return {
-        "total":  total,
-        "page" : page,
-        "limit" : limit,
-        "data" : data
+        "total": total,
+        "limit": limit,
+        "page": page,
+        "cases": result,
     }
 
 @router.get("/doctor-balance", status_code = 200)
@@ -294,7 +460,8 @@ async def get_doctor_fees(hospital : hospital_dependency, db : db_dependency):
         data.append({
             "id" : doctor.id,
             "name" : doctor.name,
-            "fees" : doctor.fees
+            "fees" : doctor.fees,
+            "appointment_fees" : doctor.appointment_fees
         })
     return data
 
@@ -334,9 +501,11 @@ async def get_hospital_policy(hospital : hospital_dependency, db : db_dependency
     policy = db.query(Documents).filter(Documents.user_id == hospital.id, Documents.role == "hospital", Documents.type == "POLICY").first()
     if not policy:
         raise HTTPException(status_code = 404, detail = "Policy not found, Upload Policy for your hospital")
+    policy_location = await generate_signed_url(policy.document_path, hospital.id, "hospital", policy.id, 1200)
+    policy_url = urljoin(BASE_URL, policy_location)
     return {
         "uploaded_at" : policy.date.isoformat(),
-        "url" : await generate_signed_url(policy.document_path, hospital.id, "hospital", policy.id, 1200)
+        "url" : policy_url
     }
 
 @router.get("/doctor-transactions", status_code = 200)
@@ -353,10 +522,10 @@ async def show_doctor_transactions(
     doctors = db.query(Doctors).filter(Doctors.hospital_id == hospital.id)
     if doctor_name:
         doctors = doctors.filter(Doctors.name == doctor_name.title())
-    doctors = doctors.all()
+    doctors = doctors.offset((page - 1) * limit).limit(limit).all()
     if not doctors:
         raise HTTPException(404, "No doctors found")
-
+    doctor_map = {d.id : d.name for d in doctors}
     query = db.query(DoctorPayments).filter(DoctorPayments.doctor_id.in_([doc.id for doc in doctors]))
 
     if type:
@@ -364,18 +533,20 @@ async def show_doctor_transactions(
     if date:
         query = query.filter(DoctorPayments.date == date)
 
-    transactions = query.offset((page - 1) * limit).limit(limit).all()
-
-    return [
-        {
-            "id" : transaction.id,
-            "date" : transaction.date.isoformat(),
-            "amount" : transaction.amount,
-            "type" : transaction.type,
-            "note" : transaction.note
-        }
-        for transaction in transactions
-    ]
+    transactions = query.order_by(DoctorPayments.date.desc()).offset((page - 1) * limit).limit(limit).all()
+    data = []
+    for transaction in transactions:
+        doctor = doctor_map.get(transaction.doctor_id)
+        if doctor:
+            data.append({
+                "id" : transaction.id,
+                "date" : transaction.date.isoformat(),
+                "amount" : transaction.amount,
+                "type" : transaction.type,
+                "note" : transaction.note,
+                "doctor" : doctor
+            })
+    return data
 
 # =====================================================================================
 # POST REQUESTS
@@ -425,7 +596,7 @@ async def update_profile(request : ProfileRequest, hospital : hospital_dependenc
     hospital.address = request.address.title() if request.address else hospital.address
     hospital.city = request.city.title() if request.city else hospital.city
     hospital.state = request.state.title() if request.state else hospital.state
-    hospital.zip = request.zip if request.zip else hospital.zip
+    hospital.zip = request.zip if request.zip else hospital.zip,
     hospital.phone_number = request.phone_number if request.phone_number else hospital.phone_number
 
     db.commit()

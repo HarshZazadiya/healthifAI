@@ -18,12 +18,12 @@ async def handle_payment(
 ):
     if sender_role.lower() not in ["user", "doctor", "hospital", "admin"] or reciever_role.lower() not in ["user", "doctor", "hospital", "admin"]:
         raise HTTPException(status_code = 400, detail = "Invalid role")
-    if sender_role == reciever_role and sender_id == reciever_id and note != "TOP-UP":
+    if sender_role == reciever_role and sender_id == reciever_id and type != "TOP-UP":
         raise HTTPException(status_code = 400, detail = "Sender and reciever cannot be same")
     if amount < 0:
         raise HTTPException(status_code = 400, detail = "Amount can not be less than 0")
     # top up wallet
-    if note == "TOP-UP" and (sender_role == reciever_role and sender_id == reciever_id):
+    if type == "TOP-UP" and (sender_role == reciever_role and sender_id == reciever_id):
         if sender_role == "user":
             payment = UserPayments(
                 user_id = sender_id,
@@ -32,6 +32,17 @@ async def handle_payment(
                 type = type,
                 note = note
             )
+            db.add(payment)
+            db.commit()
+            db.refresh(payment)
+            return {
+                "id" : payment.id,
+                "user_id" : payment.user_id,
+                "amount" : payment.amount,
+                "type" : payment.type,
+                "note" : payment.note,
+                "message" : "Wallet topped up successfully"
+            }
         elif sender_role == "doctor":
             payment = DoctorPayments(
                 doctor_id = sender_id,
@@ -39,19 +50,34 @@ async def handle_payment(
                 type = type,
                 note = note
             )
+            db.add(payment)
+            db.commit()
+            db.refresh(payment)
+            return {
+                "id" : payment.id,
+                "doctor_id" : payment.doctor_id,
+                "amount" : payment.amount,
+                "type" : payment.type,
+                "note" : payment.note,
+                "message" : "Wallet topped up successfully"
+            }
+        # elif sender_role == "hospital":
+        #     payment = HospitalPayments(
+        #         hospital_id = sender_id,
+        #         amount = amount,
+        #         type = type,
+        #         note = note
+        #     )
+        # elif sender_role == "admin":
+        #     payment = AdminPayments(
+        #         admin_id = sender_id,
+        #         amount = amount,
+        #         type = type,
+        #         note = note
+        #     )
         else :
             raise HTTPException(status_code = 400, detail = "Invalid role")
-        db.add(payment)
-        db.commit()
-        db.refresh(payment)
-        return {
-            "id" : payment.id,
-            "user_id" : payment.user_id,
-            "amount" : payment.amount,
-            "type" : payment.type,
-            "note" : payment.note,
-            "message" : "Wallet topped up successfully"
-        }
+
 
     sender_wallet = db.query(Wallet).filter(Wallet.user_id == sender_id, Wallet.role == sender_role).first()
     middleman = None

@@ -6,7 +6,7 @@ from urllib.parse import urljoin
 from fastapi import BackgroundTasks, Query
 from datetime import datetime, date
 from fastapi import APIRouter, HTTPException
-from services.notifcation import create_notification
+from services.notification import create_notification
 from services.payment import handle_refund
 from utils.signed_url_generator import generate_signed_url
 from utils.dependencies import doctor_dependency, db_dependency
@@ -43,6 +43,7 @@ async def get_profile(doctor : doctor_dependency, db : db_dependency):
     return {
         "name" : doctor.name,
         "email" : doctor.email,
+        "google_email_id" : doctor.google_email_id,
         "availability" : doctor.availability,
         "specialty" : doctor.specialty
     }
@@ -96,7 +97,7 @@ async def get_my_cases(
         
         # Fetch symptoms
         symptoms = db.query(Symptoms).filter(Symptoms.id.in_(all_symptom_ids)).all() if all_symptom_ids else []
-        symptom_map = {s.id: s.symptom for s in symptoms}
+        symptom_map = {s.id: {"name": s.symptom, "severity": s.severity} for s in symptoms}
         
         # Build response - ONLY ONE LOOP
         result = []
@@ -108,7 +109,8 @@ async def get_my_cases(
                     if s_id in symptom_map:
                         case_symptoms.append({
                             "id" : s_id,
-                            "name" : symptom_map[s_id]
+                            "name" : symptom_map[s_id]["name"],
+                            "severity" : symptom_map[s_id]["severity"]
                         })
             user  = users.get(case.user_id)
             result.append({
@@ -133,7 +135,7 @@ async def get_my_cases(
         if not case:
             raise HTTPException(404, "Case not found")
         
-        user = db.query(Users).filter(Users.id == case.doctor_id).first()
+        user = db.query(Users).filter(Users.id == case.user_id).first()
         if not user:
             raise HTTPException(404, "User not found")
         all_doc_ids = set(case.user_doc_ids or []) | set(case.doctor_doc_ids or [])
@@ -147,7 +149,7 @@ async def get_my_cases(
         
         symptom_ids = set(case.symptom_ids or [])
         symptoms = db.query(Symptoms).filter(Symptoms.id.in_(symptom_ids)).all() if symptom_ids else []
-        symptom_map = {s.id: s.symptom for s in symptoms}
+        symptom_map = {s.id: {"name": s.symptom, "severity": s.severity} for s in symptoms}
         
         case_symptoms = []
         if case.symptom_ids:
@@ -155,7 +157,8 @@ async def get_my_cases(
                 if s_id in symptom_map:
                     case_symptoms.append({
                         "id" : s_id,
-                        "name" : symptom_map[s_id]
+                        "name" : symptom_map[s_id]["name"],
+                        "severity" : symptom_map[s_id]["severity"]
                     })
         
         total = 1
@@ -285,7 +288,7 @@ async def get_assigned_users(doctor : doctor_dependency, db : db_dependency, use
         raise HTTPException(status_code = 404, detail = "No users found")   
     user_map = {user.id : user for user in users}
 
-    cases = db.query(Cases).filter(Cases.user_id.in_(assigned_user_ids)).all()
+    cases = db.query(Cases).filter(Cases.user_id.in_(assigned_user_ids), Cases.doctor_id == doctor.id, Cases.status != "CLOSED").all()
     if cases is None:
         raise HTTPException(status_code = 404, detail = "No cases found")
     case_map = {case.user_id : case for case in cases}
@@ -298,9 +301,14 @@ async def get_assigned_users(doctor : doctor_dependency, db : db_dependency, use
             "id" : assigned_user.id,
             "user_id" : assigned_user.user_id,
             "username" : user.name if user else "Unknown",
+            "phone_number" : user.phone_number,
+            "user_google_email_id" : user.google_email_id,
+            "user_lat" : user.lat,
+            "user_lon" : user.lon,
             "case_id" : case.case_id if case else None,
-            "case_opened_at" : case.date if case else None,
-            "last_updated" : case.last_updated if case else None
+            "case_db_id" : case.id if case else None,
+            "case_opened_at" : case.date.isoformat() if case else None,
+            "last_updated" : case.last_updated.isoformat() if case else None
         })
 
     return data
@@ -340,25 +348,29 @@ async def get_all_doctors_under_same_hospital(doctor : doctor_dependency, db : d
         data.append({
             "id" : doc.id,
             "name" : doc.name,
-            "registered_email" : doc.email,
+            "registered_email" : doc.google_email_id if doc.google_email_id else doc.email,
+            "phone_number" : doc.phone_number,
             "specialty" : doc.specialty,
-            "google_email_id" : doc.google_email_id
+            "rating" : doc.rating,
+            "total_cases" : doc.current_cases,
+            "fees" : doc.fees,
+            "appointment_fees" : doc.appointment_fees
         })
     return data
 
 @router.get("/transactions/", status_code = 200)
-async def show_all_transactions(doctor : doctor_dependency, db : db_dependency, type : Optional[str] = None, date : Optional[datetime] = None, page : int = 1, limit : int = 10):
+async def show_all_transactions(doctor : doctor_dependency, db : db_dependency, type : Optional[str] = None, date : Optional[date] = None, page : int = 1, limit : int = 10):
     query = db.query(DoctorPayments).filter(DoctorPayments.doctor_id == doctor.id)
 
     # filter by type and date if provided
     if type:
-        query = query.filter(DoctorPayments.type == type)
+        query = query.filter(DoctorPayments.type == type.upper())
     if date:
-        query = query.filter(DoctorPayments.date == date)
+        start_of_day = datetime.combine(date, datetime.min.time())
+        end_of_day = datetime.combine(date, datetime.max.time())
+        query = query.filter(DoctorPayments.date >= start_of_day, DoctorPayments.date <= end_of_day)
 
-    transactions = query.offset((page - 1) * limit).limit(limit).all()
-    if not transactions:
-        raise HTTPException(status_code = 404, detail = "No transactions found")
+    transactions = query.order_by(DoctorPayments.date.desc()).offset((page - 1) * limit).limit(limit).all()
     return [
         {
             "id" : transaction.id,
@@ -369,6 +381,20 @@ async def show_all_transactions(doctor : doctor_dependency, db : db_dependency, 
         }
         for transaction in transactions
     ]
+
+@router.get("/policy", status_code = 200)
+async def get_my_policy_details(doctor : doctor_dependency, db : db_dependency):
+    policy = db.query(Documents).filter(Documents.role == "hospital", Documents.user_id == doctor.hospital_id, Documents.type == "POLICY").first()
+    if not policy:
+        raise HTTPException(status_code = 404, detail = "No policies found")
+    policy_location = await generate_signed_url(policy.document_path, user_id = doctor.id, user_role = "doctor", doc_id = policy.id)
+    policy_url = urljoin(BASE_URL, policy_location)
+    return {
+        "id" : policy.id,
+        "file_name" : policy.document_path.split("/")[-1] if policy.document_path else "Policy Document",
+        "url" : policy_url,
+        "uploaded_at" : policy.date.isoformat() if policy.date else None
+    }
 
 # =====================================================================================
 # POST REQUESTS
@@ -435,6 +461,7 @@ async def close_case(case_id : int, doctor : doctor_dependency, db : db_dependen
     # if case is not in requested by user or open then throw an erro [NOTE  : the close status is already checked when querying the DB.]
     elif case.status not in ["REQUESTED_BY_USER", "OPEN"]:
         raise HTTPException(status_code = 400, detail = "Invalid status")
+    case.last_updated = datetime.now()
     db.commit()
     db.refresh(case)
     

@@ -4,7 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel
 from urllib.parse import urljoin
 from fastapi import APIRouter, HTTPException, Query
-from services.notifcation import create_notification
+from services.notification import create_notification
 from utils.signed_url_generator import generate_signed_url
 from utils.dependencies import admin_dependency, db_dependency
 from models import Cases, Users, Doctors, Wallet, Hospitals, Documents, Symptoms, UserPayments, DoctorPayments
@@ -459,10 +459,13 @@ async def get_all_transactions(
         total_user = user_query.count()
         user_transactions = user_query.order_by(UserPayments.date.desc()).offset((page - 1) * limit).limit(limit).all()
         
+        users = db.query(Users).filter(Users.id.in_([t.user_id for t in user_transactions])).all()
+        users_map = {u.id : u.name for u in users}
         result["user_transactions"] = [
             {
                 "id": t.id,
                 "user_id": t.user_id,
+                "user_name" : users_map.get(t.user_id, "Unknown User"),
                 "amount": float(t.amount) if t.amount else 0,
                 "date": t.date.isoformat() if t.date else None,
                 "type": t.type,
@@ -487,10 +490,13 @@ async def get_all_transactions(
         total_doctor = doctor_query.count()
         doctor_transactions = doctor_query.order_by(DoctorPayments.date.desc()).offset((page - 1) * limit).limit(limit).all()
         
+        doctors = db.query(Doctors).filter(Doctors.id.in_([t.doctor_id for t in doctor_transactions])).all()
+        doctors_map = {d.id : d.name for d in doctors}
         result["doctor_transactions"] = [
             {
                 "id": t.id,
                 "doctor_id": t.doctor_id,
+                "doctor_name" : doctors_map.get(t.doctor_id, "Unknown Doctor"),
                 "amount": float(t.amount) if t.amount else 0,
                 "date": t.date.isoformat() if t.date else None,
                 "type": t.type,
@@ -520,25 +526,83 @@ async def get_all_wallets(
     page : int = Query(1, ge = 1),
     limit : int = Query(20, ge = 1, le = 100)
 ):
-    wallets = db.query(Wallet)
-    if role :
-        wallets = wallets.filter(Wallet.role == role)
-    if amount :
-        wallets = wallets.filter(Wallet.balance == amount)
+    result = []
 
-    wallets = wallets.offset((page - 1) * limit).limit(limit).all()
-    if not wallets :
+    users = db.query(Users).filter(Users.role == "user").all()
+    for user in users:
+        wallet = db.query(Wallet).filter(Wallet.user_id == user.id, Wallet.role == "user").first()
+        balance = wallet.balance if wallet else 0
+        result.append({
+            "id" : user.id,
+            "name" : user.name,
+            "role" : "user",
+            "balance" : float(balance)
+        })
+
+    # ----- Doctors -----
+    doctors = db.query(Doctors).all()
+    for doctor in doctors:
+        wallet = db.query(Wallet).filter(Wallet.user_id == doctor.id, Wallet.role == "doctor").first()
+        balance = wallet.balance if wallet else 0
+        result.append({
+            "id" : doctor.id,
+            "name" : doctor.name,
+            "role" : "doctor",
+            "balance" : float(balance)
+        })
+
+    # ----- Hospitals (with merged wallet handling) -----
+    hospitals = db.query(Hospitals).all()
+    for hospital in hospitals:
+        if hospital.merged_wallet_id is not None:
+            # Use the merged wallet (belongs to a doctor)
+            merged_wallet = db.query(Wallet).filter(Wallet.id == hospital.merged_wallet_id).first()
+            balance = merged_wallet.balance if merged_wallet else 0
+        else:
+            # Use hospital's own wallet
+            wallet = db.query(Wallet).filter(Wallet.user_id == hospital.id, Wallet.role == "hospital").first()
+            balance = wallet.balance if wallet else 0
+        result.append({
+            "id" : hospital.id,
+            "name" : hospital.name,
+            "role" : "hospital",
+            "balance" : float(balance)
+        })
+    
+    if not result :
         raise HTTPException(status_code = 404, detail = "No wallets found")
+    
+    if role:
+        result = [r for r in result if r["role"] == role.lower()]
+    if amount:
+        result = [r for r in result if r["balance"] == amount]
+    
+    result = result[(page - 1) * limit : page * limit]
+    
+    return result
 
-    return [
-        {
-            "id" : wallet.id,
-            "user_id" : wallet.user_id,
-            "role" : wallet.role,
-            "balance" : wallet.balance
-        }
-        for wallet in wallets
-    ]
+@router.get("/policy", status_code = 200)
+async def get_hospital_policy(admin : admin_dependency, db : db_dependency, hospital_id : Optional[int] = None):
+    if hospital_id:
+        policy = db.query(Documents).filter(Documents.user_id == hospital_id, Documents.role == "hospital", Documents.type == "POLICY").first()
+        return [{
+            "id" : policy.id,
+            "hospital_id" : policy.user_id,
+            "url" : urljoin(BASE_URL, await generate_signed_url(policy.document_path, admin.id, "admin", policy.id)),
+            "uploaded_at" : policy.date
+        }]
+    else : 
+        policies = db.query(Documents).filter(Documents.role == "hospital", Documents.type == "POLICY").all()
+        data = []
+        for policy in policies:
+            data.append({
+                "id" : policy.id,
+                "hospital_id" : policy.user_id,
+                "url" : urljoin(BASE_URL, await generate_signed_url(policy.document_path, admin.id, "admin", policy.id)),
+                "uploaded_at" : policy.date
+            })
+
+        return data
 
 # =====================================================================================
 # POST REQUESTS

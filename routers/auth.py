@@ -11,6 +11,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from utils.helper import bcrypt_context, oauth2_bearer
 from fastapi import BackgroundTasks
 from utils.hospital_location_getter import hospital_location_getter 
+from utils.dependencies import db_dependency
 
 router = APIRouter(
     prefix = "/auth",
@@ -52,19 +53,6 @@ class CreateHospitalRequest(BaseModel):
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
-
-# =====================================================================================
-# DEPENDENCIES
-# =====================================================================================
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-db_dependency = Annotated[Session, Depends(get_db)]
 
 # =====================================================================================
 # HELPER FUNCTIONS
@@ -122,7 +110,7 @@ def create_refresh_token(entity_id : int, entity_type : str, role : str):
 # =====================================================================================
 
 @router.post("/token")
-async def login(form_data : OAuth2PasswordRequestForm = Depends(), db : Session = Depends(get_db)):
+async def login(db : db_dependency, form_data : OAuth2PasswordRequestForm = Depends()):
     user = authenticate_user(form_data.username, form_data.password, db)
     if user and user.is_active == False:
         raise HTTPException(status_code = 401, detail = "You have been inactivated by the admin")

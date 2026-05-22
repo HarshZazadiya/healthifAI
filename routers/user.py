@@ -6,7 +6,7 @@ from typing import List, Optional
 from datetime import date, datetime
 from services.payment import handle_payment, handle_refund
 from sqlalchemy.orm.attributes import flag_modified
-from services.notifcation import create_notification
+from services.notiifcation import create_notification
 from utils.signed_url_generator import generate_signed_url
 from utils.dependencies import user_dependency, db_dependency
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
@@ -454,10 +454,6 @@ async def get_user_location(user : user_dependency, db : db_dependency):
         "has_location" : user.lat is not None and user.lon is not None
     }
 
-from datetime import date, datetime, time
-from typing import Optional
-from fastapi import Query, HTTPException
-
 @router.get("/transactions/", status_code=200)
 async def show_all_transactions(
     user : user_dependency, 
@@ -489,6 +485,21 @@ async def show_all_transactions(
         }
         for transaction in transactions
     ]
+
+@router.get("/policy/{hospital_id}", status_code = 200)
+async def get_hospital_policy_details(hospital_id : int, user : user_dependency, db : db_dependency):
+    policies = db.query(Documents).filter(Documents.role == "hospital", Documents.user_id == hospital_id, Documents.type == "POLICY").all()
+    if not policies:
+        raise HTTPException(status_code = 404, detail = "No policies found")
+    data = []
+    for policy in policies :
+        data.append({
+            "id" : policy.id,
+            "file_name" : policy.document_path.split("/")[-1] if policy.document_path else "Policy Document",
+            "url" : urljoin(BASE_URL, await generate_signed_url(policy.document_path, user_id = user.id, user_role = "user", doc_id = policy.id)),
+            "uploaded_at" : policy.date.isoformat() if policy.date else None
+        })
+    return data
 
 # =====================================================================================
 # POST REQUESTS
@@ -575,7 +586,7 @@ async def assign_doctor(doctor_id : int, user : user_dependency, db : db_depende
     result = await handle_payment(db, user.id, user.role, doctor_id, "doctor", doctor.fees, note = f"Fees of doctor {doctor.name}")
     
     # add a case
-    hospital = db.query(Hospitals).filter(Hospitals.id == doctor.id).first()
+    hospital = db.query(Hospitals).filter(Hospitals.id == doctor.hospital_id).first()
     if not hospital:
         raise HTTPException(status_code = 404, detail = "Hospital not found")
     case = Cases(
@@ -601,7 +612,7 @@ async def assign_doctor(doctor_id : int, user : user_dependency, db : db_depende
         db,
         message = f"You have been assigned to case {case.case_id} for user {user.name}", 
         recipient_id = case.doctor_id, 
-        recipient_role = "dpoctor"
+        recipient_role = "doctor"
     )
 
     background_tasks.add_task(
@@ -1043,6 +1054,7 @@ async def cancel_appointment(appointment_id : int, user : user_dependency, db : 
     case = db.query(Cases).filter(Cases.id == appointment.case_id).first()
     doctor = db.query(Doctors).filter(Doctors.id == appointment.doctor_id).first()
     case.cost -= doctor.appointment_fees
+    case.last_updated = datetime.now()
     db.refresh(case)
 
     # refund the payment

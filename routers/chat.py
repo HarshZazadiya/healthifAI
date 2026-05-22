@@ -7,13 +7,14 @@ from jose import jwt, JWTError
 from logs.logging import logger
 from database import SessionLocal
 from sqlalchemy.orm import Session
-from typing import Dict, Optional
+from typing import Annotated, Dict, Optional, Union, Any
 from urllib.parse import urljoin
 from fastapi.responses import FileResponse
+from utils.dependencies import db_dependency
 from services.document_handling import add_document
 from utils.signed_url_generator import generate_signed_url
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, Query
-from models import Cases, Users, Doctors, ConversationRoom, ConversationMessage, AssignedDoctors, Hospitals, DoctorHospitalConversationRoom, DoctorHospitalConversationMessage
+from models import Cases, Users, Doctors, ConversationRoom, ConversationMessage, AssignedDoctors, Hospitals, DoctorHospitalConversationRoom, DoctorHospitalConversationMessage, DoctorDoctorConversationRoom, DoctorDoctorConversationMessage
 
 router = APIRouter(
     prefix="/chat",
@@ -52,24 +53,13 @@ class RoomResponse(BaseModel):
     is_active: bool
 
 # ============================================
-# DATABASE DEPENDENCY
-# ============================================
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-# ============================================
 # CONNECTION MANAGER
 # ============================================
 
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, WebSocket] = {}
-        self.user_rooms: Dict[str, int] = {}
+        self.user_rooms: Dict[str, Union[int, Dict[str, Any]]] = {}
 
     async def connect(self, websocket: WebSocket, user_id: int, user_type: str):
         await websocket.accept()
@@ -93,13 +83,24 @@ class ConnectionManager:
                 return False
         return False
 
-    async def broadcast_to_room(self, message: dict, room_id: int, exclude_key: Optional[str] = None):
+    async def broadcast_to_room(self, message: dict, room_id: int, chat_type: Optional[str] = None, exclude_key: Optional[str] = None):
         for key, ws in self.active_connections.items():
             if key != exclude_key:
-                try:
-                    await ws.send_json(message)
-                except:
-                    pass
+                room_info = self.user_rooms.get(key)
+                if room_info:
+                    if isinstance(room_info, dict):
+                        target_room_id = room_info.get("room_id")
+                        target_chat_type = room_info.get("chat_type")
+                        if target_room_id == room_id and (chat_type is None or target_chat_type is None or target_chat_type == chat_type):
+                            try:
+                                await ws.send_json(message)
+                            except:
+                                pass
+                    elif room_info == room_id:
+                        try:
+                            await ws.send_json(message)
+                        except:
+                            pass
 
     def is_user_online(self, user_id: int, user_type: str) -> bool:
         key = f"{user_type}_{user_id}"
@@ -203,9 +204,10 @@ async def websocket_endpoint(websocket: WebSocket):
             
             elif message_type == "join_room":
                 room_id = data.get("room_id")
+                chat_type = data.get("chat_type")
                 if room_id:
                     key = f"{user_type}_{user_id}"
-                    manager.user_rooms[key] = room_id
+                    manager.user_rooms[key] = {"room_id": room_id, "chat_type": chat_type}
             
             elif message_type == "leave_room":
                 key = f"{user_type}_{user_id}"
@@ -224,6 +226,7 @@ async def websocket_endpoint(websocket: WebSocket):
 async def handle_chat_message(data: dict, sender_id: int, sender_type: str, db: Session):
     """Handle incoming chat messages"""
     room_id = data.get("room_id")
+    chat_type = data.get("chat_type")
     message_text = data.get("message", "")
     file_data = data.get("file_data")
     file_name = data.get("file_name")
@@ -232,19 +235,54 @@ async def handle_chat_message(data: dict, sender_id: int, sender_type: str, db: 
     if not room_id:
         return
     
-    # Verify room exists and user/doctor/hospital has access
+    # Determine if it's doctor-hospital chat, doctor-doctor chat, or user-doctor chat
     is_doc_hosp = False
-    room = db.query(ConversationRoom).filter(ConversationRoom.id == room_id).first()
-    if not room:
-        room = db.query(DoctorHospitalConversationRoom).filter(DoctorHospitalConversationRoom.id == room_id).first()
-        if not room:
-            return
+    is_doc_doc = False
+    if chat_type == "doctor_hospital":
         is_doc_hosp = True
+    elif chat_type == "doctor_doctor":
+        is_doc_doc = True
+    elif chat_type == "user_doctor":
+        is_doc_hosp = False
+    elif sender_type == "hospital":
+        is_doc_hosp = True
+    elif sender_type == "user":
+        is_doc_hosp = False
+    else:
+        # sender_type is "doctor", but no chat_type is specified.
+        # Check if the room exists in DoctorHospitalConversationRoom and doctor is part of it
+        room_h = db.query(DoctorHospitalConversationRoom).filter(
+            DoctorHospitalConversationRoom.id == room_id,
+            DoctorHospitalConversationRoom.doctor_id == sender_id
+        ).first()
+        if room_h:
+            is_doc_hosp = True
+        else:
+            room_d = db.query(DoctorDoctorConversationRoom).filter(
+                DoctorDoctorConversationRoom.id == room_id,
+                (DoctorDoctorConversationRoom.doctor1_id == sender_id) | (DoctorDoctorConversationRoom.doctor2_id == sender_id)
+            ).first()
+            if room_d:
+                is_doc_doc = True
+
+    # Now load the correct room
+    if is_doc_hosp:
+        room = db.query(DoctorHospitalConversationRoom).filter(DoctorHospitalConversationRoom.id == room_id).first()
+    elif is_doc_doc:
+        room = db.query(DoctorDoctorConversationRoom).filter(DoctorDoctorConversationRoom.id == room_id).first()
+    else:
+        room = db.query(ConversationRoom).filter(ConversationRoom.id == room_id).first()
+ 
+    if not room:
+        return
     
     if is_doc_hosp:
         if sender_type == "doctor" and room.doctor_id != sender_id:
             return
         if sender_type == "hospital" and room.hospital_id != sender_id:
+            return
+    elif is_doc_doc:
+        if sender_type != "doctor" or (room.doctor1_id != sender_id and room.doctor2_id != sender_id):
             return
     else:
         if sender_type == "user" and room.user_id != sender_id:
@@ -261,7 +299,9 @@ async def handle_chat_message(data: dict, sender_id: int, sender_type: str, db: 
             room_id = room_id,
             sender_id = sender_id,
             sender_type = sender_type,
-            doc_type = file_type  
+            doc_type = file_type,
+            is_doc_hosp = is_doc_hosp,
+            chat_type = chat_type
         )
         if saved_path:
             # Generate signed URL for immediate use in WebSocket response
@@ -276,13 +316,22 @@ async def handle_chat_message(data: dict, sender_id: int, sender_type: str, db: 
             attachment_url = urljoin(BASE_URL, signed_url)
         else:
             attachment_url = None
-
+ 
     # Create Message
     if is_doc_hosp:
         new_message = DoctorHospitalConversationMessage(
             room_id = room_id,
             sender_id = sender_id,
             sender_type = sender_type,
+            content = message_text,
+            message_type = data.get("message_type", "file") if file_data else "text",
+            attachment_url = saved_path if file_data else None,
+            is_read = False
+        )
+    elif is_doc_doc:
+        new_message = DoctorDoctorConversationMessage(
+            room_id = room_id,
+            sender_id = sender_id,
             content = message_text,
             message_type = data.get("message_type", "file") if file_data else "text",
             attachment_url = saved_path if file_data else None,
@@ -321,6 +370,7 @@ async def handle_chat_message(data: dict, sender_id: int, sender_type: str, db: 
         "type" : "message",
         "id" : new_message.id,
         "room_id" : room_id,
+        "chat_type" : chat_type or ("doctor_hospital" if is_doc_hosp else "doctor_doctor" if is_doc_doc else "user_doctor"),
         "sender_id" : sender_id,
         "sender_type" : sender_type,
         "sender_name" : sender_name,
@@ -339,6 +389,10 @@ async def handle_chat_message(data: dict, sender_id: int, sender_type: str, db: 
         else:
             await manager.send_personal_message(message_response, room.doctor_id, "doctor")
             await manager.send_personal_message({**message_response, "status": "sent"}, sender_id, "hospital")
+    elif is_doc_doc:
+        other_doctor_id = room.doctor2_id if room.doctor1_id == sender_id else room.doctor1_id
+        await manager.send_personal_message(message_response, other_doctor_id, "doctor")
+        await manager.send_personal_message({**message_response, "status": "sent"}, sender_id, "doctor")
     else:
         if sender_type == "user":
             await manager.send_personal_message(message_response, room.doctor_id, "doctor")
@@ -350,6 +404,7 @@ async def handle_chat_message(data: dict, sender_id: int, sender_type: str, db: 
 async def handle_typing_indicator(data: dict, sender_id: int, sender_type: str):
     """Handle typing indicators"""
     room_id = data.get("room_id")
+    chat_type = data.get("chat_type")
     is_typing = data.get("is_typing", False)
     
     if not room_id:
@@ -360,34 +415,50 @@ async def handle_typing_indicator(data: dict, sender_id: int, sender_type: str):
     typing_message = {
         "type": "typing",
         "room_id": room_id,
+        "chat_type": chat_type,
         "sender_id": sender_id,
         "sender_type": sender_type,
         "is_typing": is_typing
     }
     
-    await manager.broadcast_to_room(typing_message, room_id, exclude_key=key)
+    await manager.broadcast_to_room(typing_message, room_id, chat_type=chat_type, exclude_key=key)
 
 async def handle_read_receipt(data: dict, user_id: int, user_type: str, db: Session):
     """Mark messages as read"""
     message_ids = data.get("message_ids", [])
+    room_id = data.get("room_id")
+    chat_type = data.get("chat_type")
     
     if message_ids:
-        db.query(ConversationMessage).filter(
-            ConversationMessage.id.in_(message_ids)
-        ).update({"is_read": True}, synchronize_session=False)
-        db.query(DoctorHospitalConversationMessage).filter(
-            DoctorHospitalConversationMessage.id.in_(message_ids)
-        ).update({"is_read": True}, synchronize_session=False)
+        # Determine the table to update
+        if chat_type == "doctor_hospital" or user_type == "hospital":
+            db.query(DoctorHospitalConversationMessage).filter(
+                DoctorHospitalConversationMessage.id.in_(message_ids)
+            ).update({"is_read": True}, synchronize_session=False)
+        elif chat_type == "user_doctor" or user_type == "user":
+            db.query(ConversationMessage).filter(
+                ConversationMessage.id.in_(message_ids)
+            ).update({"is_read": True}, synchronize_session=False)
+        else:
+            # Fallback: update both
+            db.query(ConversationMessage).filter(
+                ConversationMessage.id.in_(message_ids)
+            ).update({"is_read": True}, synchronize_session=False)
+            db.query(DoctorHospitalConversationMessage).filter(
+                DoctorHospitalConversationMessage.id.in_(message_ids)
+            ).update({"is_read": True}, synchronize_session=False)
         db.commit()
     
     read_receipt = {
         "type": "read_receipt",
         "message_ids": message_ids,
+        "room_id": room_id,
+        "chat_type": chat_type,
         "read_by": user_id,
         "read_by_type": user_type
     }
     
-    await manager.broadcast_to_room(read_receipt, data.get("room_id"))
+    await manager.broadcast_to_room(read_receipt, room_id, chat_type=chat_type)
 
 async def notify_user_status(user_id: int, user_type: str, is_online: bool, db: Session):
     """Notify relevant users about status change"""
@@ -418,7 +489,7 @@ async def notify_user_status(user_id: int, user_type: str, is_online: bool, db: 
             status_message["room_id"] = room.id
             await manager.send_personal_message(status_message, room.doctor_id, "doctor")
 
-async def save_file(file_data: str, file_name: str, room_id: int, sender_id: int, sender_type: str, doc_type: str) -> str:
+async def save_file(file_data: str, file_name: str, room_id: int, sender_id: int, sender_type: str, doc_type: str, is_doc_hosp: bool = False, chat_type: Optional[str] = None) -> str:
     """Save base64 encoded file and return the stored document path."""
     from models import Documents as DB_Documents
     db = SessionLocal()
@@ -428,16 +499,18 @@ async def save_file(file_data: str, file_name: str, room_id: int, sender_id: int
             file_data = file_data.split("base64,")[1]
         file_bytes = base64.b64decode(file_data)
 
-        # 2. Check room type
-        is_doc_hosp = False
-        room = db.query(ConversationRoom).filter(ConversationRoom.id == room_id).first()
-        if not room:
-            room = db.query(DoctorHospitalConversationRoom).filter(DoctorHospitalConversationRoom.id == room_id).first()
-            if not room:
-                return None
-            is_doc_hosp = True
-
+        # 2. Get the room
         if is_doc_hosp:
+            room = db.query(DoctorHospitalConversationRoom).filter(DoctorHospitalConversationRoom.id == room_id).first()
+        elif chat_type == "doctor_doctor":
+            room = db.query(DoctorDoctorConversationRoom).filter(DoctorDoctorConversationRoom.id == room_id).first()
+        else:
+            room = db.query(ConversationRoom).filter(ConversationRoom.id == room_id).first()
+            
+        if not room:
+            return None
+
+        if is_doc_hosp or chat_type == "doctor_doctor":
             # Just save to disk and add to Documents model without a case
             unique_filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{sender_id}_{file_name}"
             dest_path = os.path.join(UPLOAD_DIR, unique_filename)
@@ -487,8 +560,8 @@ async def save_file(file_data: str, file_name: str, room_id: int, sender_id: int
 
 @router.get("/rooms", status_code=200)
 async def get_conversation_rooms(
-    token: str = Query(...),
-    db: Session = Depends(get_db)
+    db: db_dependency,
+    token: str = Query(...)
 ):
     """Get all conversation rooms for the authenticated user"""
     try:
@@ -598,6 +671,41 @@ async def get_conversation_rooms(
                 "updated_at": room.updated_at.isoformat() if room.updated_at else None
             })
 
+        # 3. Doctor-Doctor rooms
+        db_d_rooms = db.query(DoctorDoctorConversationRoom).filter(
+            ((DoctorDoctorConversationRoom.doctor1_id == user_id) | (DoctorDoctorConversationRoom.doctor2_id == user_id)),
+            DoctorDoctorConversationRoom.is_active == True
+        ).all()
+        
+        for room in db_d_rooms:
+            other_doc_id = room.doctor2_id if room.doctor1_id == user_id else room.doctor1_id
+            other_doc = db.query(Doctors).filter(Doctors.id == other_doc_id).first()
+            
+            last_message = db.query(DoctorDoctorConversationMessage).filter(
+                DoctorDoctorConversationMessage.room_id == room.id
+            ).order_by(DoctorDoctorConversationMessage.created_at.desc()).first()
+            
+            unread_count = db.query(DoctorDoctorConversationMessage).filter(
+                DoctorDoctorConversationMessage.room_id == room.id,
+                DoctorDoctorConversationMessage.sender_id != user_id,
+                DoctorDoctorConversationMessage.is_read == False
+            ).count()
+            
+            rooms.append({
+                "id": room.id,
+                "chat_type": "doctor_doctor",
+                "doctor1_id": room.doctor1_id,
+                "doctor2_id": room.doctor2_id,
+                "other_doctor_id": other_doc_id,
+                "other_doctor_name": other_doc.name if other_doc else "Unknown",
+                "other_doctor_specialty": other_doc.specialty if other_doc else None,
+                "last_message": last_message.content if last_message else None,
+                "last_message_time": last_message.created_at.isoformat() if last_message else None,
+                "unread_count": unread_count,
+                "is_other_doctor_online": manager.is_user_online(other_doc_id, "doctor"),
+                "updated_at": room.updated_at.isoformat() if room.updated_at else None
+            })
+
     elif user_type == "hospital":
         # Hospital rooms with doctors
         db_h_rooms = db.query(DoctorHospitalConversationRoom).filter(
@@ -637,28 +745,47 @@ async def get_conversation_rooms(
 
 @router.post("/room", status_code=201)
 async def create_or_get_room(
-    doctor_id: int,
+    db: db_dependency,
     token: str = Query(...),
-    db: Session = Depends(get_db)
+    doctor_id: Optional[int] = Query(None),
+    patient_id: Optional[int] = Query(None)
 ):
     """Create or get existing conversation room between user and doctor"""
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id = payload.get("id")
+        token_id = payload.get("id")
         user_type = payload.get("type")
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
     
-    if user_type != "user":
-        raise HTTPException(status_code=403, detail="Only users can initiate chat")
+    if user_type == "user":
+        # Patient is initiating chat with a doctor
+        p_id = token_id
+        d_id = doctor_id
+        if not d_id:
+            raise HTTPException(status_code=400, detail="doctor_id is required")
+    elif user_type == "doctor":
+        # Doctor is initiating chat with a patient
+        d_id = token_id
+        p_id = patient_id
+        if not p_id:
+            raise HTTPException(status_code=400, detail="patient_id is required")
+    else:
+        raise HTTPException(status_code=403, detail="Only patients and doctors can initiate chat")
     
-    doctor = db.query(Doctors).filter(Doctors.id == doctor_id).first()
+    # Verify patient exists
+    patient = db.query(Users).filter(Users.id == p_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+        
+    # Verify doctor exists
+    doctor = db.query(Doctors).filter(Doctors.id == d_id).first()
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor not found")
     
     existing_room = db.query(ConversationRoom).filter(
-        ConversationRoom.user_id == user_id,
-        ConversationRoom.doctor_id == doctor_id
+        ConversationRoom.user_id == p_id,
+        ConversationRoom.doctor_id == d_id
     ).first()
     
     if existing_room:
@@ -668,8 +795,8 @@ async def create_or_get_room(
         return {"room_id": existing_room.id, "is_new": False}
     
     new_room = ConversationRoom(
-        user_id=user_id,
-        doctor_id=doctor_id,
+        user_id=p_id,
+        doctor_id=d_id,
         is_active=True
     )
     db.add(new_room)
@@ -681,9 +808,9 @@ async def create_or_get_room(
 
 @router.post("/room/hospital", status_code=201)
 async def create_or_get_doctor_hospital_room(
+    db: db_dependency,
     doctor_id: Optional[int] = Query(None),
-    token: str = Query(...),
-    db: Session = Depends(get_db)
+    token: str = Query(...)
 ):
     """Create or get existing conversation room between doctor and hospital"""
     try:
@@ -733,13 +860,66 @@ async def create_or_get_doctor_hospital_room(
     return {"room_id": new_room.id, "is_new": True}
 
 
+@router.post("/room/doctor", status_code=201)
+async def create_or_get_doctor_doctor_room(
+    db: db_dependency,
+    other_doctor_id: int = Query(...),
+    token: str = Query(...)
+):
+    """Create or get existing conversation room between two doctors"""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("id")
+        user_type = payload.get("type")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+        
+    if user_type != "doctor":
+        raise HTTPException(status_code=403, detail="Only doctors can chat with other doctors")
+        
+    if user_id == other_doctor_id:
+        raise HTTPException(status_code=400, detail="Cannot chat with yourself")
+        
+    # Sort IDs for unique ordering (doctor1_id < doctor2_id)
+    doc1_id, doc2_id = sorted([user_id, other_doctor_id])
+    
+    # Verify both doctors exist
+    doc1 = db.query(Doctors).filter(Doctors.id == doc1_id).first()
+    doc2 = db.query(Doctors).filter(Doctors.id == doc2_id).first()
+    if not doc1 or not doc2:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+        
+    existing_room = db.query(DoctorDoctorConversationRoom).filter(
+        DoctorDoctorConversationRoom.doctor1_id == doc1_id,
+        DoctorDoctorConversationRoom.doctor2_id == doc2_id
+    ).first()
+    
+    if existing_room:
+        if not existing_room.is_active:
+            existing_room.is_active = True
+            db.commit()
+        return {"room_id": existing_room.id, "is_new": False}
+        
+    new_room = DoctorDoctorConversationRoom(
+        doctor1_id=doc1_id,
+        doctor2_id=doc2_id,
+        is_active=True
+    )
+    db.add(new_room)
+    db.commit()
+    db.refresh(new_room)
+    
+    return {"room_id": new_room.id, "is_new": True}
+
+
 @router.get("/messages/{room_id}", status_code=200)
 async def get_conversation_messages(
+    db: db_dependency,
     room_id: int,
     token: str = Query(...),
+    chat_type: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=200),
-    before_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db)
+    before_id: Optional[int] = Query(None)
 ):
     """Get messages for a conversation room with pagination"""
     try:
@@ -751,17 +931,52 @@ async def get_conversation_messages(
     
     # Check room type
     is_doc_hosp = False
-    room = db.query(ConversationRoom).filter(ConversationRoom.id == room_id).first()
-    if not room:
-        room = db.query(DoctorHospitalConversationRoom).filter(DoctorHospitalConversationRoom.id == room_id).first()
-        if not room:
-            raise HTTPException(status_code=404, detail="Room not found")
+    is_doc_doc = False
+    
+    if chat_type == "doctor_hospital":
         is_doc_hosp = True
+    elif chat_type == "doctor_doctor":
+        is_doc_doc = True
+    elif chat_type == "user_doctor":
+        is_doc_hosp = False
+    elif user_type == "hospital":
+        is_doc_hosp = True
+    elif user_type == "user":
+        is_doc_hosp = False
+    else:
+        # user_type is "doctor", but no chat_type is specified.
+        # Check if the room exists in DoctorHospitalConversationRoom and doctor is part of it
+        room_h = db.query(DoctorHospitalConversationRoom).filter(
+            DoctorHospitalConversationRoom.id == room_id,
+            DoctorHospitalConversationRoom.doctor_id == user_id
+        ).first()
+        if room_h:
+            is_doc_hosp = True
+        else:
+            room_d = db.query(DoctorDoctorConversationRoom).filter(
+                DoctorDoctorConversationRoom.id == room_id,
+                (DoctorDoctorConversationRoom.doctor1_id == user_id) | (DoctorDoctorConversationRoom.doctor2_id == user_id)
+            ).first()
+            if room_d:
+                is_doc_doc = True
+
+    if is_doc_hosp:
+        room = db.query(DoctorHospitalConversationRoom).filter(DoctorHospitalConversationRoom.id == room_id).first()
+    elif is_doc_doc:
+        room = db.query(DoctorDoctorConversationRoom).filter(DoctorDoctorConversationRoom.id == room_id).first()
+    else:
+        room = db.query(ConversationRoom).filter(ConversationRoom.id == room_id).first()
+        
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
     
     if is_doc_hosp:
         if user_type == "doctor" and room.doctor_id != user_id:
             raise HTTPException(status_code=403, detail="Access denied")
         if user_type == "hospital" and room.hospital_id != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+    elif is_doc_doc:
+        if user_type != "doctor" or (room.doctor1_id != user_id and room.doctor2_id != user_id):
             raise HTTPException(status_code=403, detail="Access denied")
     else:
         if user_type == "user" and room.user_id != user_id:
@@ -788,6 +1003,18 @@ async def get_conversation_messages(
                 DoctorHospitalConversationMessage.sender_type == "doctor",
                 DoctorHospitalConversationMessage.is_read == False
             ).update({"is_read": True})
+    elif is_doc_doc:
+        query = db.query(DoctorDoctorConversationMessage).filter(DoctorDoctorConversationMessage.room_id == room_id)
+        if before_id:
+            query = query.filter(DoctorDoctorConversationMessage.id < before_id)
+        messages = query.order_by(DoctorDoctorConversationMessage.created_at.desc()).limit(limit).all()
+        
+        # Mark messages as read
+        db.query(DoctorDoctorConversationMessage).filter(
+            DoctorDoctorConversationMessage.room_id == room_id,
+            DoctorDoctorConversationMessage.sender_id != user_id,
+            DoctorDoctorConversationMessage.is_read == False
+        ).update({"is_read": True})
     else:
         query = db.query(ConversationMessage).filter(ConversationMessage.room_id == room_id)
         if before_id:
@@ -816,7 +1043,7 @@ async def get_conversation_messages(
             {
                 "id": m.id,
                 "sender_id": m.sender_id,
-                "sender_type": m.sender_type,
+                "sender_type": getattr(m, "sender_type", "doctor"),
                 "message": m.content,
                 "message_type": m.message_type,
                 "file_url": urljoin(BASE_URL, await generate_signed_url(m.attachment_url, user_id = user_id, user_role = user_type, directory = "documents")) if m.attachment_url else None,
@@ -840,9 +1067,9 @@ async def get_uploaded_file(filename: str):
 
 @router.put("/room/{room_id}/close", status_code=200)
 async def close_conversation_room(
+    db: db_dependency,
     room_id: int,
-    token: str = Query(...),
-    db: Session = Depends(get_db)
+    token: str = Query(...)
 ):
     """Close/deactivate a conversation room"""
     try:
@@ -879,10 +1106,7 @@ async def close_conversation_room(
 
 
 @router.get("/doctors/available", status_code=200)
-async def get_available_doctors_for_chat(
-    token: str = Query(...),
-    db: Session = Depends(get_db)
-):
+async def get_available_doctors_for_chat(db : db_dependency, token: str = Query(...)):
     """Get list of doctors/patients/hospitals available for chat"""
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])

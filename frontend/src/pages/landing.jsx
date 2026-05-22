@@ -23,6 +23,7 @@ import {
 const Landing = () => {
   const { user, logout } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [imageError, setImageError] = useState(false);
   const dropdownRef = useRef(null);
 
   // Close dropdown on click outside
@@ -82,8 +83,13 @@ const Landing = () => {
                   onClick={() => setDropdownOpen(!dropdownOpen)}
                   className="flex items-center gap-2.5 p-1.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-all duration-200 active:scale-[0.98]"
                 >
-                  {user.google_profile_pic ? (
-                    <img src={user.google_profile_pic} alt={user.name} className="w-8 h-8 rounded-xl object-cover" />
+                  {user.google_profile_pic && !imageError ? (
+                    <img 
+                      src={user.google_profile_pic} 
+                      alt={user.name} 
+                      onError={() => setImageError(true)}
+                      className="w-8 h-8 rounded-xl object-cover" 
+                    />
                   ) : (
                     <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-emerald-500 flex items-center justify-center font-bold text-white text-sm">
                       {user.name ? user.name.charAt(0).toUpperCase() : 'U'}

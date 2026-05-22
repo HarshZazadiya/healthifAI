@@ -343,3 +343,42 @@ class DoctorHospitalConversationMessage(Base):
     
     # Relationships
     room = relationship("DoctorHospitalConversationRoom", back_populates = "messages")
+
+# ============================================
+# DOCTOR-DOCTOR CONVERSATION MODELS
+# ============================================
+
+class DoctorDoctorConversationRoom(Base):
+    __tablename__ = "doctor_doctor_conversation_rooms"
+    
+    id = Column(Integer, primary_key = True, index = True)
+    doctor1_id = Column(Integer, ForeignKey("doctors.id"), nullable = False)
+    doctor2_id = Column(Integer, ForeignKey("doctors.id"), nullable = False)
+    created_at = Column(DateTime, server_default = func.now())
+    updated_at = Column(DateTime, server_default = func.now(), onupdate = func.now())
+    is_active = Column(Boolean, default = True)
+    
+    # Relationships
+    doctor1 = relationship("Doctors", foreign_keys = [doctor1_id], backref = "doctor_initiated_rooms")
+    doctor2 = relationship("Doctors", foreign_keys = [doctor2_id], backref = "doctor_received_rooms")
+    messages = relationship("DoctorDoctorConversationMessage", back_populates = "room", cascade = "all, delete")
+    
+    # Unique constraint
+    __table_args__ = (
+        UniqueConstraint('doctor1_id', 'doctor2_id', name = 'unique_doctor_doctor_conversation'),
+    )
+
+class DoctorDoctorConversationMessage(Base):
+    __tablename__ = "doctor_doctor_conversation_messages"
+    
+    id = Column(Integer, primary_key = True, index = True)
+    room_id = Column(Integer, ForeignKey("doctor_doctor_conversation_rooms.id"), nullable = False)
+    sender_id = Column(Integer, nullable = False)
+    content = Column(Text, nullable = True)
+    message_type = Column(String(20), default = "text")
+    attachment_url = Column(String(500), nullable = True)
+    is_read = Column(Boolean, default = False)
+    created_at = Column(DateTime, server_default = func.now())
+    
+    # Relationships
+    room = relationship("DoctorDoctorConversationRoom", back_populates = "messages")

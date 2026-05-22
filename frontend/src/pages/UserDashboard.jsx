@@ -8,7 +8,7 @@ import DocumentUploader from '../components/DocumentUploader';
 import { useAuth } from '../context/AuthContext';
 import {
   LayoutDashboard, User, Activity, FileText, Calendar,
-  Search, Users, Wallet, File, MapPin, X, Plus,
+  Search, Users, Wallet, File, MapPin, X, Plus, Shield,
   Map as MapIcon, LogOut, ChevronRight,
   Clock, DollarSign, Navigation, Upload, CheckCircle2, Lock, Building2, Edit2, Download,
   MessageCircle, Send, Paperclip
@@ -89,52 +89,142 @@ const MapModal = ({ hospitalLat, hospitalLon, hospitalName, userLat, userLon, on
 // ============================================
 // DOCTOR DETAILS MODAL (embedded in the main modal container)
 // ============================================
-const DoctorDetailsModal = ({ doctor, hospital, userLocation, onClose, onChat, onMap }) => {
+const DoctorDetailsModal = ({ doctor, hospital, userLocation, onClose, onChat, onSeeCase, onSeePolicy }) => {
+  const [showMap, setShowMap] = useState(false);
+
   if (!doctor) return null;
+
+  // Haversine / Distance calculation
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    if (!lat1 || !lon1 || !lat2 || !lon2) return null;
+    const R = 6371; // km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return (R * c).toFixed(2);
+  };
+
+  const distance = calculateDistance(userLocation?.lat, userLocation?.lon, hospital?.lat, hospital?.lon);
+
   return (
-    <div className="bg-white rounded-3xl p-8 w-full h-full flex flex-col shadow-2xl overflow-auto">
-      <div className="flex justify-between items-start mb-4">
-        <div className="flex items-center gap-4">
-          <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold text-xl">
-            {doctor.name?.charAt(0)}
-          </div>
-          <div>
-            <h2 className="text-2xl font-bold text-slate-800">Dr. {doctor.name}</h2>
-            <p className="text-blue-600 font-medium">{doctor.specialty || 'General Physician'}</p>
+    <div
+      className={`bg-white rounded-3xl p-6 shadow-2xl relative transition-all duration-300 flex flex-col md:flex-row gap-6 max-h-[90vh] overflow-y-auto ${showMap ? 'max-w-4xl w-full' : 'max-w-md w-full'}`}
+      onClick={e => e.stopPropagation()}
+    >
+      <button onClick={onClose} className="absolute right-4 top-4 p-1.5 text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full transition-colors z-10"><X size={16} /></button>
+
+      <div className="flex-1 space-y-5">
+        <div>
+          <span className="text-xs font-bold uppercase tracking-wider bg-indigo-50 text-indigo-600 px-3 py-1 rounded-full">Doctor Profile</span>
+          <div className="flex items-center gap-4 mt-3">
+            <div className="w-14 h-14 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center font-extrabold text-2xl">
+              {doctor.name?.charAt(0)?.toUpperCase()}
+            </div>
+            <div>
+              <h3 className="text-xl font-black text-slate-800">Dr. {doctor.name}</h3>
+              <p className="text-blue-600 font-medium text-sm">{doctor.specialty || 'General Physician'}</p>
+            </div>
           </div>
         </div>
-        <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full transition-colors"><X size={20} /></button>
-      </div>
 
-      <div className="space-y-4 mb-6 flex-1">
-        <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Doctor Info</h4>
-          {doctor.email && <p className="text-sm text-slate-700 flex items-center gap-2 mb-1">✉️ {doctor.email}</p>}
-          {doctor.phone_number && <p className="text-sm text-slate-700 flex items-center gap-2 mb-1">📞 {doctor.phone_number}</p>}
-          {doctor.fees && <p className="text-sm text-slate-700 flex items-center gap-2">💰 Consultation Fee: ₹{doctor.fees}</p>}
-          {doctor.appointment_fees && <p className="text-sm text-slate-700 flex items-center gap-2">📅 Appointment Fee: ₹{doctor.appointment_fees}</p>}
+        <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-100 text-sm">
+          {doctor.email && (
+            <div className="flex justify-between">
+              <span className="text-slate-500 font-medium">Email:</span>
+              <span className="font-bold text-slate-800 truncate max-w-[200px]" title={doctor.email}>{doctor.email}</span>
+            </div>
+          )}
+          {doctor.phone_number && (
+            <div className="flex justify-between">
+              <span className="text-slate-500 font-medium">Phone:</span>
+              <span className="font-bold text-slate-800">{doctor.phone_number}</span>
+            </div>
+          )}
+          {doctor.fees && (
+            <div className="flex justify-between">
+              <span className="text-slate-500 font-medium">Consultation Fee:</span>
+              <span className="font-bold text-slate-800">₹{doctor.fees}</span>
+            </div>
+          )}
+          {doctor.appointment_fees && (
+            <div className="flex justify-between">
+              <span className="text-slate-500 font-medium">Appointment Fee:</span>
+              <span className="font-bold text-slate-800">₹{doctor.appointment_fees}</span>
+            </div>
+          )}
         </div>
 
         {hospital && (
-          <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100">
-            <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2 flex items-center gap-2">
+          <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 text-sm space-y-1">
+            <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <Building2 size={14} /> Hospital Details
             </h4>
-            <p className="font-bold text-slate-800">{hospital.name}</p>
-            <p className="text-sm text-slate-600 mt-1"><MapPin size={14} className="inline mr-1" /> {hospital.address}</p>
-            {hospital.phone_number && <p className="text-sm text-slate-600 mt-1">📞 {hospital.phone_number}</p>}
+            <p className="font-extrabold text-slate-800">{hospital.name}</p>
+            <p className="text-slate-650 text-xs flex items-start gap-1"><MapPin size={12} className="mt-0.5 shrink-0" /> {hospital.address}</p>
+            {hospital.phone_number && <p className="text-xs text-slate-600">📞 {hospital.phone_number}</p>}
           </div>
         )}
+
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={onChat}
+            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all shadow-blue-200"
+          >
+            <MessageCircle size={16} /> Chat
+          </button>
+          <button
+            onClick={() => setShowMap(!showMap)}
+            className="bg-slate-900 hover:bg-slate-800 text-white font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2 shadow-md transition-all shadow-slate-200"
+          >
+            <MapPin size={16} /> {showMap ? "Hide Map" : "Show Map"}
+          </button>
+          <button
+            onClick={onSeeCase}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2 shadow-md transition-all shadow-emerald-200"
+          >
+            <FileText size={16} /> See Case
+          </button>
+          <button
+            onClick={onSeePolicy}
+            className="bg-indigo-600 hover:bg-indigo-750 text-white font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2 shadow-md transition-all shadow-indigo-200"
+          >
+            <Shield size={16} /> Policy
+          </button>
+        </div>
       </div>
 
-      <div className="flex gap-3 mt-auto">
-        <button onClick={onMap} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition-colors flex items-center justify-center gap-2">
-          <MapIcon size={18} /> See on Map
-        </button>
-        <button onClick={onChat} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3 rounded-xl transition-colors flex items-center justify-center gap-2">
-          <MessageCircle size={18} /> Chat
-        </button>
-      </div>
+      {showMap && (
+        <div className="flex-1 flex flex-col min-h-[300px] md:w-[400px]">
+          <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-1.5"><MapIcon size={18} className="text-indigo-600" /> Location</h4>
+          {hospital?.lat && hospital?.lon ? (
+            <div className="flex-1 flex flex-col space-y-3">
+              <div className="rounded-2xl overflow-hidden border border-slate-200 shadow-inner flex-1 min-h-[220px]">
+                <MapComponent
+                  markers={[
+                    ...(userLocation?.lat && userLocation?.lon ? [{ lat: parseFloat(userLocation.lat), lon: parseFloat(userLocation.lon), label: 'My Location', isUser: true }] : []),
+                    { lat: parseFloat(hospital.lat), lon: parseFloat(hospital.lon), label: `${hospital.name} (Hospital)` }
+                  ]}
+                  zoom={11}
+                />
+              </div>
+              {distance && (
+                <div className="text-xs bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-indigo-900 flex justify-between items-center">
+                  <span>Distance to Hospital:</span>
+                  <span className="font-extrabold text-sm text-indigo-700">{distance} km</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex-1 bg-slate-100 rounded-2xl flex flex-col items-center justify-center text-slate-400 p-4 text-center text-sm border border-dashed border-slate-350">
+              <MapPin size={24} className="mb-2" />
+              Coordinates not available for hospital.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
@@ -158,6 +248,7 @@ const DocumentViewerModal = ({ url, filename, onClose }) => {
       cache: 'no-store'
     })
       .then(res => {
+        if (!res.ok) throw new Error('HTTP error');
         const type = res.headers.get('content-type');
 
         if (type?.startsWith('image/')) {
@@ -165,7 +256,7 @@ const DocumentViewerModal = ({ url, filename, onClose }) => {
         } else if (type?.includes('pdf')) {
           setContentType('pdf');
         } else {
-          setContentType('other');
+          throw new Error('Unrecognized type');
         }
       })
       .catch(() => {
@@ -190,7 +281,7 @@ const DocumentViewerModal = ({ url, filename, onClose }) => {
     return (
       <div
         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-        className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4 cursor-pointer"
+        className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-[500] p-4 cursor-pointer"
       >
         <div className="bg-white rounded-3xl p-8 w-full max-w-4xl text-center cursor-default">Loading document preview...</div>
       </div>
@@ -200,7 +291,7 @@ const DocumentViewerModal = ({ url, filename, onClose }) => {
   return (
     <div
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-      className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4 animate-fade-in cursor-pointer"
+      className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-[500] p-4 animate-fade-in cursor-pointer"
     >
       <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl relative cursor-default">
         <div className="flex justify-between items-center p-4 border-b border-slate-200">
@@ -415,7 +506,7 @@ const ChatPanel = ({ user, onShowToast, onOpenDocumentViewer, onSeeDoctorInfo, o
     if (!selectedRoom) return;
     const loadMessages = async () => {
       try {
-        const res = await chatApiCall('get', `/chat/messages/${selectedRoom.id}`, null, { limit: 100 });
+        const res = await chatApiCall('get', `/chat/messages/${selectedRoom.id}`, null, { limit: 100, chat_type: selectedRoom.chat_type || 'user_doctor' });
         setMessages(res.data.messages || []);
         scrollToBottom();
       } catch (err) { console.error(err); }
@@ -433,7 +524,7 @@ const ChatPanel = ({ user, onShowToast, onOpenDocumentViewer, onSeeDoctorInfo, o
     const wsUrl = `ws://localhost:8000/chat/ws?token=${token}`;
     const socket = new WebSocket(wsUrl);
     socket.onopen = () => {
-      socket.send(JSON.stringify({ type: 'join_room', room_id: selectedRoom.id }));
+      socket.send(JSON.stringify({ type: 'join_room', room_id: selectedRoom.id, chat_type: selectedRoom.chat_type || 'user_doctor' }));
     };
     socket.onmessage = (event) => {
       const msg = JSON.parse(event.data);
@@ -468,6 +559,7 @@ const ChatPanel = ({ user, onShowToast, onOpenDocumentViewer, onSeeDoctorInfo, o
         ws.send(JSON.stringify({
           type: 'message',
           room_id: selectedRoom.id,
+          chat_type: selectedRoom.chat_type || 'user_doctor',
           message: inputMessage,
           message_type: file.type.startsWith('image/') ? 'image' : 'file',
           file_data: e.target.result,
@@ -484,6 +576,7 @@ const ChatPanel = ({ user, onShowToast, onOpenDocumentViewer, onSeeDoctorInfo, o
       ws.send(JSON.stringify({
         type: 'message',
         room_id: selectedRoom.id,
+        chat_type: selectedRoom.chat_type || 'user_doctor',
         message: inputMessage,
         message_type: 'text'
       }));
@@ -561,10 +654,9 @@ const ChatPanel = ({ user, onShowToast, onOpenDocumentViewer, onSeeDoctorInfo, o
                     )}
                   </h3>
                   <div className="flex items-center gap-1 mt-0.5">
-                    <div className={`w-2 h-2 rounded-full ${
-                      (user.type === 'user' ? selectedRoom.is_doctor_online : selectedRoom.is_user_online)
-                        ? 'bg-green-500' : 'bg-gray-400'
-                    }`}></div>
+                    <div className={`w-2 h-2 rounded-full ${(user.type === 'user' ? selectedRoom.is_doctor_online : selectedRoom.is_user_online)
+                      ? 'bg-green-500' : 'bg-gray-400'
+                      }`}></div>
                     <p className="text-xs text-slate-500">
                       {(user.type === 'user' ? selectedRoom.is_doctor_online : selectedRoom.is_user_online) ? 'Online' : 'Offline'}
                     </p>
@@ -781,11 +873,10 @@ const ChatPanel = ({ user, onShowToast, onOpenDocumentViewer, onSeeDoctorInfo, o
                   <div>
                     <h2 className="text-xl font-extrabold text-slate-800">Case #{caseModalData.case_id}</h2>
                     <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                      <span className={`px-2.5 py-0.5 text-xs font-bold rounded-full ${
-                        caseModalData.status === 'OPEN' ? 'bg-emerald-100 text-emerald-700' :
+                      <span className={`px-2.5 py-0.5 text-xs font-bold rounded-full ${caseModalData.status === 'OPEN' ? 'bg-emerald-100 text-emerald-700' :
                         caseModalData.status === 'CLOSED' ? 'bg-slate-100 text-slate-600' :
-                        'bg-amber-100 text-amber-700'
-                      }`}>{caseModalData.status}</span>
+                          'bg-amber-100 text-amber-700'
+                        }`}>{caseModalData.status}</span>
                       {caseModalData.diesease && (
                         <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-purple-100 text-purple-700">{caseModalData.diesease}</span>
                       )}
@@ -994,6 +1085,15 @@ const UserDashboard = () => {
   const showConfirm = (title, message, onConfirm, confirmText = 'Delete', isDestructive = true) => {
     setConfirmDialog({ isOpen: true, title, message, onConfirm, confirmText, isDestructive });
   };
+  const [pendingPolicyHospital, setPendingPolicyHospital] = useState(null);
+  const [hospitalPolicies, setHospitalPolicies] = useState({});
+
+  useEffect(() => {
+    if (activeTab === 'policies' && pendingPolicyHospital) {
+      handleViewHospitalPolicy(pendingPolicyHospital.id, pendingPolicyHospital.name);
+      setPendingPolicyHospital(null);
+    }
+  }, [activeTab, pendingPolicyHospital]);
 
   const loadData = async () => {
     try {
@@ -1022,7 +1122,7 @@ const UserDashboard = () => {
         const res = await api.get('/user/doctors/', { params: { doctor_name: filters.doctor_name || undefined, hospital_name: filters.hospital_name || undefined, page, limit: 20 } });
         setDoctors(res.data || []);
       } else if (activeTab === 'myDoctors') {
-        const res = await api.get('/user/my-doctors', { params: { doctor_name: filters.doctor_name || undefined, hospital_name: filters.hospital_name || undefined, page, limit: 20 } });
+        const res = await api.get('/user/my-doctors/', { params: { doctor_name: filters.doctor_name || undefined, hospital_name: filters.hospital_name || undefined, page, limit: 20 } });
         setMyDoctors(res.data || []);
       } else if (activeTab === 'wallet') {
         const w = await api.get('/default/myWallet');
@@ -1043,6 +1143,33 @@ const UserDashboard = () => {
           const res = await api.get('/user/location');
           setLocation({ lat: res.data.latitude, lon: res.data.longitude });
         } catch (err) { console.error('Location empty'); }
+      } else if (activeTab === 'policies') {
+        try {
+          const res = await api.get('/user/my-doctors/', { params: { limit: 100 } });
+          const myDocs = res.data || [];
+          setMyDoctors(myDocs);
+
+          const uniqueHospitalIds = Array.from(
+            new Set(myDocs.map(doc => doc.hospital_id || doc.hospital).filter(Boolean))
+          );
+
+          const policiesMap = {};
+          await Promise.all(
+            uniqueHospitalIds.map(async (hId) => {
+              try {
+                const policyRes = await api.get(`/user/policy/${hId}`);
+                if (policyRes.data && policyRes.data.length > 0) {
+                  policiesMap[hId] = policyRes.data[0];
+                }
+              } catch (err) {
+                console.error(`Failed to fetch policy for hospital ${hId}`, err);
+              }
+            })
+          );
+          setHospitalPolicies(policiesMap);
+        } catch (e) {
+          console.error("Failed to load assigned doctors for policies", e);
+        }
       }
     } catch (err) { console.error('Load error:', err); }
   };
@@ -1287,9 +1414,9 @@ const UserDashboard = () => {
   const openBookingForm = async () => {
     setShowBookingForm(true);
     try {
-      const myDocsRes = await api.get('/user/my-doctors', { params: { limit: 100 } });
+      const myDocsRes = await api.get('/user/my-doctors/', { params: { limit: 100 } });
       const myDocsIds = myDocsRes.data?.map(d => d.doctor_id) || [];
-      const res = await api.get('/user/doctors', { params: { limit: 100 } });
+      const res = await api.get('/user/doctors/', { params: { limit: 100 } });
       const allDocs = [];
       (res.data || []).forEach(h => {
         (h.doctors || []).forEach(d => {
@@ -1441,7 +1568,7 @@ const UserDashboard = () => {
             <button onClick={updateProfile} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-xl shadow-sm transition-all shadow-blue-200">
               Save Changes
             </button>
-            {(!profile.google_email_id || profile.google_email_id === 'Google account is not connected') && (
+            {(!profile.google_email_id || profile.google_email_id === 'Google account is not connected') ? (
               <button
                 onClick={connectGoogle}
                 className="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all shadow-slate-200"
@@ -1453,6 +1580,19 @@ const UserDashboard = () => {
                   />
                 </svg>
                 Connect Google Account
+              </button>
+            ) : (
+              <button
+                onClick={connectGoogle}
+                className="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all shadow-amber-200"
+              >
+                <svg className="h-4.5 w-4.5" viewBox="0 0 24 24">
+                  <path
+                    fill="#ffffff"
+                    d="M12.24 10.285V14.4h6.887c-.648 2.41-2.519 4.114-5.136 4.114A5.99 5.99 0 0 1 8 12.5a5.99 5.99 0 0 1 5.99-6.012c1.49 0 2.845.55 3.9 1.455l3.076-3.075C19.11 3.2 16.733 2 13.99 2 8.138 2 3.39 6.748 3.39 12.6s4.748 10.6 10.6 10.6c7.045 0 10.655-4.832 10.1-10.6H12.24Z"
+                  />
+                </svg>
+                Change Google Account
               </button>
             )}
           </div>
@@ -1568,10 +1708,10 @@ const UserDashboard = () => {
                 backgroundRepeat: 'no-repeat'
               }}
             >
+              <option value="OPEN">Open</option>
               <option value="">All Statuses</option>
               <option value="REQUESTED_BY_USER">Requested By Me</option>
               <option value="REQUESTED_BY_DOCTOR">REQUESTED By Doctor</option>
-              <option value="OPEN">Open</option>
               <option value="CLOSED">Closed</option>
             </select>
             <input type="date" value={caseFilters.date} onChange={e => { setCaseFilters({ ...caseFilters, date: e.target.value }); setPage(1); }} className="bg-white border border-slate-200 px-3 py-2 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500" />
@@ -1734,8 +1874,12 @@ const UserDashboard = () => {
                 <div
                   className="cursor-pointer flex-1"
                   onClick={() => {
-                    setSelectedDoctor(doctor);
+                    setSelectedDoctor({
+                      ...doctor,
+                      hospital_id: hospital.hospital_id
+                    });
                     setSelectedHospital({
+                      id: hospital.hospital_id,
                       name: hospital.hospital_name,
                       address: hospital.hospital_address,
                       phone_number: hospital.hospital_phone_number,
@@ -1769,14 +1913,29 @@ const UserDashboard = () => {
         </div>
       ))}
       {(!doctors || doctors.length === 0) && <p className="text-slate-500 col-span-full">No doctors found matching criteria.</p>}
+
+      {/* Pagination Controls */}
+      <div className="flex justify-between items-center mt-8 pt-4 border-t border-slate-100">
+        <button
+          disabled={page === 1}
+          onClick={() => setPage(page - 1)}
+          className="px-4 py-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 font-medium disabled:opacity-50 transition-all flex items-center gap-1.5 shadow-sm text-sm"
+        >
+          Previous
+        </button>
+        <span className="text-sm font-semibold text-slate-600">Page {page}</span>
+        <button
+          disabled={doctors.length < 20}
+          onClick={() => setPage(page + 1)}
+          className="px-4 py-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 font-medium disabled:opacity-50 transition-all flex items-center gap-1.5 shadow-sm text-sm"
+        >
+          Next
+        </button>
+      </div>
     </div>
   );
 
   const renderMyDoctors = () => {
-    const filteredDocs = myDoctors.filter(d =>
-      d.name?.toLowerCase().includes(filters.doctor_name?.toLowerCase() || '') &&
-      d.specialty?.toLowerCase().includes(filters.specialty?.toLowerCase() || '')
-    );
     return (
       <div className="animate-fade-in">
         <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2"><Users className="text-indigo-500" /> My Assigned Doctors</h2>
@@ -1784,12 +1943,14 @@ const UserDashboard = () => {
           <div className="flex flex-wrap gap-3">
             <div className="flex-1 min-w-[200px] relative">
               <Search className="absolute left-3 top-3 text-slate-400" size={18} />
-              <input placeholder="Filter by name..." value={filters.doctor_name || ''} onChange={e => setFilters({ ...filters, doctor_name: e.target.value })} className="w-full bg-slate-50 border border-slate-200 pl-10 p-2.5 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
+              <input placeholder="Doctor name" className="w-full bg-slate-50 border border-slate-200 pl-10 p-2.5 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" onChange={e => setFilters({ ...filters, doctor_name: e.target.value })} />
             </div>
+            <input placeholder="Hospital name" className="flex-1 min-w-[200px] bg-slate-50 border border-slate-200 p-2.5 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" onChange={e => setFilters({ ...filters, hospital_name: e.target.value })} />
+            <button onClick={() => { setPage(1); loadData(); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-medium transition-colors">Search</button>
           </div>
         </Card>
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredDocs.map(d => (
+          {myDoctors.map(d => (
             <Card
               key={d.doctor_id}
               className="border-t-4 border-t-indigo-500 flex flex-col cursor-pointer hover:shadow-lg hover:border-indigo-300 transition-all"
@@ -1802,9 +1963,11 @@ const UserDashboard = () => {
                   phone_number: d.phone_number || "",
                   fees: d.fees || 0,
                   appointment_fees: d.appointment_fees || 0,
+                  hospital_id: d.hospital_id,
                   isMyDoctor: true
                 });
                 setSelectedHospital({
+                  id: d.hospital_id,
                   name: d.hospital_name || d.hospital || "Hospital",
                   address: d.hospital_address || "",
                   phone_number: d.hospital_phone_number || "",
@@ -1820,7 +1983,26 @@ const UserDashboard = () => {
               </div>
             </Card>
           ))}
-          {filteredDocs.length === 0 && <p className="text-slate-500 col-span-full">No assigned doctors found.</p>}
+          {(!myDoctors || myDoctors.length === 0) && <p className="text-slate-500 col-span-full">No assigned doctors found.</p>}
+        </div>
+
+        {/* Pagination Controls */}
+        <div className="flex justify-between items-center mt-8 pt-4 border-t border-slate-100">
+          <button
+            disabled={page === 1}
+            onClick={() => setPage(page - 1)}
+            className="px-4 py-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 font-medium disabled:opacity-50 transition-all flex items-center gap-1.5 shadow-sm text-sm"
+          >
+            Previous
+          </button>
+          <span className="text-sm font-semibold text-slate-600">Page {page}</span>
+          <button
+            disabled={myDoctors.length < 20}
+            onClick={() => setPage(page + 1)}
+            className="px-4 py-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 font-medium disabled:opacity-50 transition-all flex items-center gap-1.5 shadow-sm text-sm"
+          >
+            Next
+          </button>
         </div>
       </div>
     );
@@ -2144,7 +2326,7 @@ const UserDashboard = () => {
                   </div>
                 </div>
               </div>
- 
+
               {/* Documents Section */}
               <div className="space-y-4">
                 <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
@@ -2268,7 +2450,7 @@ const UserDashboard = () => {
       const res = await api.get('/user/cases', { params: { limit: 100 } });
       const allCases = res.data?.cases || [];
       setCases(allCases);
-      
+
       // Try to find by specific case ID first, then fallback to doctor_id or doctorName matching
       let caseObj = allCases.find(c => c.id === caseIdOrDoctorId);
       if (!caseObj) {
@@ -2287,6 +2469,105 @@ const UserDashboard = () => {
     } catch (err) {
       showToast('Failed to load case details');
     }
+  };
+
+  const handleViewHospitalPolicy = async (hospitalId, hospitalName) => {
+    showToast(`Loading policy for ${hospitalName}...`);
+    try {
+      const res = await api.get(`/user/policy/${hospitalId}`);
+      if (res.data && res.data.length > 0) {
+        setDocumentViewer({
+          isOpen: true,
+          url: res.data[0].url,
+          filename: `${hospitalName} Policy.pdf`
+        });
+      } else {
+        showToast('No active policy document found for this hospital.');
+      }
+    } catch (err) {
+      showToast(err.response?.data?.detail || 'This hospital has not uploaded a policy document.');
+    }
+  };
+
+  const renderPolicies = () => {
+    const uniqueHospitalsMap = {};
+    myDoctors.forEach(doc => {
+      const hId = doc.hospital_id || doc.hospital;
+      if (hId && !uniqueHospitalsMap[hId]) {
+        uniqueHospitalsMap[hId] = {
+          id: hId,
+          name: doc.hospital_name || doc.hospital || "Hospital",
+          address: doc.hospital_address || "Address not available"
+        };
+      }
+    });
+    const assignedHospitals = Object.values(uniqueHospitalsMap);
+
+    return (
+      <div className="animate-fade-in space-y-6">
+        <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+          <Shield className="text-indigo-500" /> Assigned Hospital Policies
+        </h2>
+        <p className="text-sm text-slate-500">
+          View the active policies for the hospitals where your assigned doctors practice.
+        </p>
+
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {assignedHospitals.map(h => {
+            const policy = hospitalPolicies[h.id];
+            return (
+              <Card key={h.id} className="border-t-4 border-t-indigo-500 flex flex-col justify-between hover:shadow-lg hover:border-indigo-300 transition-all">
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="font-bold text-lg text-slate-850 mb-2">{h.name}</h3>
+                    <p className="text-xs text-slate-500 flex items-center gap-1.5">
+                      <MapPin size={12} className="text-slate-400" /> {h.address}
+                    </p>
+                  </div>
+                  {policy ? (
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-1">
+                      <p className="text-xs font-bold text-indigo-500 uppercase tracking-wider">Active Policy</p>
+                      <p className="text-sm text-slate-700 font-medium truncate" title={policy.file_name}>{policy.file_name}</p>
+                      {policy.uploaded_at && (
+                        <p className="text-[10px] text-slate-400">Uploaded: {new Date(policy.uploaded_at).toLocaleDateString()}</p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="bg-rose-50/50 p-3 rounded-xl border border-rose-100/50">
+                      <p className="text-xs font-semibold text-rose-600">No policy uploaded yet</p>
+                    </div>
+                  )}
+                </div>
+                {policy ? (
+                  <button
+                    onClick={() => {
+                      setDocumentViewer({
+                        isOpen: true,
+                        url: policy.url,
+                        filename: `${h.name} Policy.pdf`
+                      });
+                    }}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-xl transition-all mt-6 shadow-md shadow-indigo-100 flex items-center justify-center gap-2"
+                  >
+                    <FileText size={16} /> View Policy
+                  </button>
+                ) : (
+                  <button
+                    disabled
+                    className="w-full bg-slate-100 text-slate-400 font-semibold py-2.5 rounded-xl mt-6 cursor-not-allowed"
+                  >
+                    No Policy Available
+                  </button>
+                )}
+              </Card>
+            );
+          })}
+          {assignedHospitals.length === 0 && (
+            <p className="text-slate-500 col-span-full">You do not have any assigned hospitals yet.</p>
+          )}
+        </div>
+      </div>
+    );
   };
 
   const renderChat = () => {
@@ -2311,6 +2592,7 @@ const UserDashboard = () => {
     { id: 'doctors', name: 'Find Doctors', icon: Search },
     { id: 'myDoctors', name: 'My Doctors', icon: Users },
     { id: 'documents', name: 'Documents', icon: File },
+    { id: 'policies', name: 'Hospital Policies', icon: Shield },
     { id: 'wallet', name: 'Wallet', icon: Wallet },
     { id: 'location', name: 'Location', icon: MapIcon },
     { id: 'chat', name: 'Chat', icon: MessageCircle },
@@ -2398,6 +2680,7 @@ const UserDashboard = () => {
             {activeTab === 'myDoctors' && renderMyDoctors()}
             {activeTab === 'wallet' && renderWallet()}
             {activeTab === 'documents' && renderDocuments()}
+            {activeTab === 'policies' && renderPolicies()}
             {activeTab === 'location' && renderLocation()}
             {activeTab === 'chat' && renderChat()}
           </div>
@@ -2407,65 +2690,44 @@ const UserDashboard = () => {
       {/* Case Modal */}
       {selectedCase && renderCaseModal()}
 
-      {/* Doctor Modal + Map Modal (side‑by‑side) */}
+      {/* Doctor Modal with inline Map */}
       {selectedDoctor && (
         <div
-          onClick={(e) => { if (e.target === e.currentTarget) { setSelectedDoctor(null); setSelectedHospital(null); setIsMapModalOpen(false); } }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm transition-all duration-300 cursor-pointer animate-fade-in"
-          style={{ pointerEvents: isMapModalOpen ? 'none' : 'auto' }}
+          onClick={(e) => { if (e.target === e.currentTarget) { setSelectedDoctor(null); setSelectedHospital(null); } }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm transition-all duration-300 cursor-pointer animate-fade-in p-4"
         >
-          <div
-            className={`bg-white rounded-3xl shadow-2xl transition-all duration-300 cursor-default ${isMapModalOpen ? 'mr-[420px] w-[500px]' : 'w-[500px]'}`}
-            style={{ maxHeight: '90vh', overflow: 'auto' }}
-          >
-            <DoctorDetailsModal
-              doctor={selectedDoctor}
-              hospital={selectedHospital}
-              userLocation={location}
-              onClose={() => { setSelectedDoctor(null); setSelectedHospital(null); setIsMapModalOpen(false); }}
-              onChat={() => { setSelectedDoctor(null); setActiveTab('chat'); }}
-              onMap={async () => {
-                if (!selectedHospital?.lat || !selectedHospital?.lon) {
-                  showToast('Hospital location not available');
-                  return;
-                }
-                const userLoc = await getUserLocation();
-                if (!userLoc) {
-                  showConfirm(
-                    'Location Missing',
-                    'Your location is not set. Would you like to go to the Location tab to update it?',
-                    () => {
-                      // Close the doctor modal and confirm dialog, then go to location
-                      setSelectedDoctor(null);
-                      setSelectedHospital(null);
-                      setConfirmDialog({ isOpen: false });
-                      setActiveTab('location');
-                    },
-                    'Go to Location',
-                    false
-                  );
-                  return;
-                }
-                setMapHospitalData({ name: selectedHospital.name, lat: selectedHospital.lat, lon: selectedHospital.lon });
-                setIsMapModalOpen(true);
-              }}
-            />
-          </div>
-        </div>
-      )}
-      {isMapModalOpen && mapHospitalData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-end pr-4 pointer-events-none">
-          <div className="w-[400px] h-[80vh] bg-white rounded-3xl shadow-2xl pointer-events-auto transition-all duration-300 animate-slide-in-right">
-            <MapModal
-              hospitalLat={mapHospitalData.lat}
-              hospitalLon={mapHospitalData.lon}
-              hospitalName={mapHospitalData.name}
-              userLat={location.lat}
-              userLon={location.lon}
-              onClose={() => setIsMapModalOpen(false)}
-              onGoToLocationTab={() => { setActiveTab('location'); setIsMapModalOpen(false); }}
-            />
-          </div>
+          <DoctorDetailsModal
+            doctor={selectedDoctor}
+            hospital={selectedHospital}
+            userLocation={location}
+            onClose={() => { setSelectedDoctor(null); setSelectedHospital(null); }}
+            onChat={() => { setSelectedDoctor(null); setActiveTab('chat'); }}
+            onSeeCase={() => {
+              const associatedCase = cases.find(c => c.doctor_id === selectedDoctor.id || c.doctor_name?.toLowerCase() === selectedDoctor.name?.toLowerCase());
+              if (associatedCase) {
+                viewCaseDetails(associatedCase.id);
+                setActiveTab('cases');
+                setSelectedDoctor(null);
+                setSelectedHospital(null);
+              } else {
+                showToast("No case associated with this doctor");
+              }
+            }}
+            onSeePolicy={() => {
+              const hId = selectedHospital?.id || selectedDoctor.hospital_id;
+              if (hId) {
+                setSelectedDoctor(null);
+                setSelectedHospital(null);
+                setActiveTab('policies');
+                setPendingPolicyHospital({
+                  id: hId,
+                  name: selectedHospital?.name || "Hospital"
+                });
+              } else {
+                showToast("Hospital ID not found for this doctor.");
+              }
+            }}
+          />
         </div>
       )}
 

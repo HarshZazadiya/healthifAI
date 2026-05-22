@@ -151,17 +151,20 @@ async def update_policy(db : Session, requester_id : int, requester_role : str, 
             old_path = document.document_path.split("/documents/")[1] if "/documents/" in document.document_path else document.document_path
             path_to_old_file = os.path.join(DOCUMENTS_DIR, old_path)
             if os.path.exists(path_to_old_file):
-                os.remove(path_to_old_file)
+                try:
+                    os.remove(path_to_old_file)
+                except Exception:
+                    pass
         
-        # Save new file
-        new_path = os.path.join(DOCUMENTS_DIR, file.filename)
+        # Save new file with unique filename preserving extension
+        unique_filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{requester_id}_{file.filename}"
+        new_path = os.path.join(DOCUMENTS_DIR, unique_filename)
         with open(new_path, "wb") as f:
             content = await file.read()
             f.write(content)
         
         # Update DB
-        hospital = db.query(Hospitals).filter(Hospitals.hospital_id == requester_id).first()
-        document.document_path = f"/documents/{hospital.id}_{hospital.name}_POLICY"
+        document.document_path = f"/documents/{unique_filename}"
         db.commit()
     except Exception as e:
         db.rollback()

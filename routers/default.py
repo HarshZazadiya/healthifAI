@@ -11,10 +11,10 @@ from models import Cases
 from services.payment import handle_payment
 from services.profile import change_password
 from services.wallet import my_wallet, top_up
-from services.notifcation import create_notification, delete_all_notification, delete_notifications, my_notfications, mark_notifications_as_read
+from services.notification import create_notification, delete_all_notification, delete_notifications, my_notfications, mark_notifications_as_read
 from services.document_handling import add_document, remove_document, get_document
 from utils.redis_config import redis_client
-from utils.dependencies import requester_dependency, db_dependency
+from utils.dependencies import requester_dependency, db_dependency, admin_dependency
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from utils.signed_url_generator import verify_signed_url
 from logs.logging import logger
@@ -107,9 +107,9 @@ async def top_up_wallet(db: db_dependency, payment_request: PaymentRequest, toke
     if redis_client:
         try:
             await redis_client.delete(f"wallet : {owner_type} : {owner_id}")
-            logger.info(f"✅ Redis cache cleared for {owner_type} : {owner_id}")
+            logger.info(f"Redis cache cleared for {owner_type} : {owner_id}")
         except Exception as e:
-            logger.info(f"⚠️ Redis cache clear failed (non-critical) : {e}")
+            logger.info(f"Redis cache clear failed (non-critical) : {e}")
 
     return result
 
@@ -125,22 +125,22 @@ async def get_my_wallet(db : db_dependency, token : Annotated[str, Depends(oauth
         raise HTTPException(status_code = 401, detail = "Invalid token")
 
     # check in redis for info 
-    if redis_client:
-        try:
-            balance = await redis_client.get(f"wallet : {owner_type} : {owner_id}")
-            if balance:
-                return {"balance" : float(balance)}
-        except Exception as e:
-            logger.info(f"⚠️ Redis cache get failed (non-critical) : {e}")
+    # if redis_client:
+    #     try:
+    #         balance = await redis_client.get(f"wallet : {owner_type} : {owner_id}")
+    #         if balance:
+    #             return {"balance" : float(balance)}
+    #     except Exception as e:
+    #         logger.info(f"⚠️ Redis cache get failed (non-critical) : {e}")
 
     result = await my_wallet(db, owner_id, owner_role)
 
     if redis_client:
         try:
             await redis_client.set(f"wallet : {owner_type} : {owner_id}", result["balance"])
-            logger.info(f"✅ Redis cache set for {owner_type} : {owner_id}")
+            logger.info(f"Redis cache set for {owner_type} : {owner_id}")
         except Exception as e:
-            logger.info(f"⚠️ Redis cache set failed (non-critical) : {e}")
+            logger.info(f"Redis cache set failed (non-critical) : {e}")
             
     return result
 
@@ -271,6 +271,11 @@ async def view_file(token: str = Query(...)):
 # =====================================================================================
 # NOTIFICATIONS
 # =====================================================================================
+
+@router.post("/notification", status_code = 200)
+async def send_notification(admin : admin_dependency, db : db_dependency, reciever_id : int, reciever_role : str, message : str):
+    result = await create_notification(db, message, reciever_id, reciever_role)
+    return result
 
 @router.get("/notifications", status_code = 200)
 async def get_notifications(requester : requester_dependency, db : db_dependency):
