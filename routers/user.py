@@ -6,7 +6,7 @@ from typing import List, Optional
 from datetime import date, datetime
 from services.payment import handle_payment, handle_refund
 from sqlalchemy.orm.attributes import flag_modified
-from services.notiifcation import create_notification
+from services.notification import create_notification
 from utils.signed_url_generator import generate_signed_url
 from utils.dependencies import user_dependency, db_dependency
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
@@ -23,7 +23,9 @@ router = APIRouter(
 # =====================================================================================
 # CONSTANTS
 # =====================================================================================
+
 BASE_URL = os.getenv("BASE_URL")
+PRIMIUM_PLAN_FEES = os.getenv("PRIMIUM_PLAN_FEES")
 
 # =====================================================================================
 # PYDANTIC CLASSES
@@ -609,7 +611,6 @@ async def assign_doctor(doctor_id : int, user : user_dependency, db : db_depende
     # send notification to doctor
     background_tasks.add_task(
         create_notification,
-        db,
         message = f"You have been assigned to case {case.case_id} for user {user.name}", 
         recipient_id = case.doctor_id, 
         recipient_role = "doctor"
@@ -617,7 +618,6 @@ async def assign_doctor(doctor_id : int, user : user_dependency, db : db_depende
 
     background_tasks.add_task(
         create_notification,
-        db,
         message = f"You have been sucessfully assigned to doctor {doctor.name}", 
         recipient_id = user.id, 
         recipient_role = "user"
@@ -674,7 +674,6 @@ async def book_appointment(request: AppointmentRequest, user: user_dependency, d
     db.refresh(new_appointment)
 
     await create_notification(
-        db,
         message = f"You have a new appointment request from user {user.name}",
         recipient_id = request.doctor_id,
         recipient_role = "doctor"
@@ -690,6 +689,19 @@ async def book_appointment(request: AppointmentRequest, user: user_dependency, d
 # =====================================================================================
 # PUT REQUESTS
 # =====================================================================================
+
+@router.put("/upgrade", status_code = 200)
+async def upgrade_user(user : user_dependency, db : db_dependency, background_tasks : BackgroundTasks = BackgroundTasks()):
+    result = await handle_payment(user.id, user.role, 1, "admin", PRIMIUM_PLAN_FEES, note = f"Buying PREMIUM PLAN", type = "OUTGOING")
+
+    background_tasks.add_task(
+        create_notification,
+        message = f"You have been successfully upgraded to PREMIUM PLAN user", 
+        recipient_id = user.id, 
+        recipient_role = "user"
+    )
+
+    return result
 
 @router.put("/reopen/{case_id}", status_code = 200)
 async def reopen_case(case_id : int, user : user_dependency, db : db_dependency, background_tasks : BackgroundTasks = BackgroundTasks()):

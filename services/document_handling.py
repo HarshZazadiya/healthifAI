@@ -5,6 +5,7 @@ from urllib.parse import urljoin
 from sqlalchemy.orm import Session
 from models import Documents, Cases, Hospitals
 from fastapi import UploadFile, HTTPException
+from utils.document_classifer import check_scannable
 from utils.signed_url_generator import generate_signed_url
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -121,6 +122,8 @@ async def add_document(db: Session, uploader_id: int, uploader_role: str, file: 
     
     db.commit()
     db.refresh(document)
+
+    check_scannable(path_to_save)
     
     if case_id:
         db.refresh(case)

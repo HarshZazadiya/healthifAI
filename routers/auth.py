@@ -244,7 +244,6 @@ async def register_hospital(request : CreateHospitalRequest, db : db_dependency,
     # in baackground get hospital location
     background_tasks.add_task(
         hospital_location_getter,
-        db,
         hospital.id
     )
 

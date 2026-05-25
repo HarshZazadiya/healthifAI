@@ -50,7 +50,8 @@ async def mark_notifications_as_read(db: Session, user_id: int, role: str, notif
         "updated_count": updated_count
     }
 
-async def create_notification(db: db_dependency, message: str, recipient_id: int, recipient_role: str):
+async def create_notification(message: str, recipient_id: int, recipient_role: str):
+    db = SessionLocal()
     try:
         new_notification = Notifications(
             user_id=recipient_id,

@@ -7,6 +7,7 @@ from jose import jwt, JWTError
 from logs.logging import logger
 from database import SessionLocal
 from database import engine, Base
+from requests.compat import urljoin
 from fastapi import Request, Depends
 from utils.helper import bcrypt_context
 from fastapi import HTTPException, FastAPI
@@ -272,8 +273,8 @@ async def google_callback(request: Request, db : db_dependency):
 
     try:
         jwt_token = await handle_google_login(requester.email, actual_user_id, actual_role, user_google_email, user_google_name, user_google_pic, google_tokens.get("access_token"), google_tokens.get("refresh_token"), db)
-        
-        react_url = os.getenv("FRONTEND_URL")
+        react_base_url = os.getenv("REACT_BASE_URL")
+        react_url = urljoin(react_base_url, os.getenv("FRONTEND_URL"))
         
         # Create redirect response
         response = RedirectResponse(url = react_url, status_code = 302)

@@ -592,7 +592,7 @@ async def remove_document_from_case(
     document_id : int = Query(..., gt = 0),
     background_tasks : BackgroundTasks = BackgroundTasks()
 ):
-    case = db.query(Cases).filter(Cases.id == case_id, Cases.doctor_id == doctor.id, case.status == "OPEN").first()
+    case = db.query(Cases).filter(Cases.id == case_id, Cases.doctor_id == doctor.id, Cases.status == "OPEN").first()
     if not case:
         raise HTTPException(404, "Case not found")
     

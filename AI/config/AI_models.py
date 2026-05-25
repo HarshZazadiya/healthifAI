@@ -10,7 +10,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 logger.info("Initializing llama-3.3-70B via Groq...")
 llm = ChatGroq(
     # model = "openai/gpt-oss-120b",
-    model = "llama-3.3-70b-versatile",
+    model = "meta-llama/llama-4-scout-17b-16e-instruct",
     temperature = 0,
     max_tokens = 2048,
     groq_api_key = os.getenv("GROQ_API_KEY")
@@ -52,3 +52,15 @@ summary_llm = ChatGroq(
 )
 
 logger.info("LLM and Embeddings ready")
+
+# ============================================================
+# OCR/TEXT EXTRACTOR vLLM
+# ============================================================
+
+logger.info("Initializing vLLM...")
+text_extractor_llm = ChatGroq(
+    model = "meta-llama/llama-4-scout-17b-16e-instruct",
+    temperature = 0,
+    max_tokens = 2048,
+    groq_api_key = os.getenv("GROQ_API_KEY")
+)

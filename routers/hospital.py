@@ -605,8 +605,7 @@ async def update_profile(request : ProfileRequest, hospital : hospital_dependenc
     # if address related field was changes then change lat and lon in background task
     if request.address or request.city or request.state or request.zip:
         background_tasks.add_task(
-            hospital_location_getter, 
-            db, 
+            hospital_location_getter,
             hospital.id
         )
         
@@ -660,14 +659,12 @@ async def change_availibility_of_doctor(
     for user in users:
         background_tasks.add_task(
             create_notification,
-            db,
             message = f"Your doctor {doctor.name} availibility has been changed to {availibility} by hospital {hospital.name}",
             recipient_id = user.user_id,
             recipient_role = "user"
         )
     background_tasks.add_task(
         create_notification,
-        db,
         message = f"Your availibility has been changed to {availibility} by hospital {hospital.name}",
         recipient_id = doctor_id,
         recipient_role = "doctor"
@@ -685,7 +682,6 @@ async def change_case_limit(
     result =  await set_limit_for_doctor(db, doctor_id, limit)
     background_tasks.add_task(
         create_notification,
-        db,
         message = f"Your case limit has been changed to {limit} by hospital {hospital.name}",
         recipient_id = doctor_id,
         recipient_role = "doctor"

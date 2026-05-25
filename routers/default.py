@@ -161,7 +161,7 @@ async def upload_document(requester : requester_dependency, db : db_dependency, 
     result = await add_document(db, requester["id"], requester["role"], document, type.upper(), case_id)
     # send notification to the other party in the case if case_id is provided
     if case_id is not None:
-        case = db.query(Cases).filter(Cases.case_id == case_id).first()
+        case = db.query(Cases).filter(Cases.id == case_id).first()
         if not case:
             raise HTTPException(status_code = 404, detail = "Case not found")
         if requester["role"] == "user":
@@ -173,7 +173,7 @@ async def upload_document(requester : requester_dependency, db : db_dependency, 
         else :
             raise HTTPException(status_code = 401, detail = "Unauthorized access")
         
-        await create_notification(db, f"New document uploaded in case {case.case_id}", recipient_id, recipient_role)    
+        await create_notification(f"New document uploaded in case {case.case_id}", recipient_id, recipient_role)    
     return result
 
 @router.delete("/documents/{doc_id}", status_code = 200)
@@ -274,7 +274,7 @@ async def view_file(token: str = Query(...)):
 
 @router.post("/notification", status_code = 200)
 async def send_notification(admin : admin_dependency, db : db_dependency, reciever_id : int, reciever_role : str, message : str):
-    result = await create_notification(db, message, reciever_id, reciever_role)
+    result = await create_notification(message, reciever_id, reciever_role)
     return result
 
 @router.get("/notifications", status_code = 200)

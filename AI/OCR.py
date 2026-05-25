@@ -1,45 +1,44 @@
 import base64
 import os
 from dotenv import load_dotenv
+from langchain_community.tools import tool
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
-import cv2
-import numpy as np
+from langchain_core.agents import AgentType
+# def scan_prescription(image_path):
+#     img = cv2.imread(image_path)
 
-def scan_prescription(image_path):
-    img = cv2.imread(image_path)
+#     if img is None:
+#         raise ValueError("Image not found")
 
-    if img is None:
-        raise ValueError("Image not found")
+#     # Resize
+#     img = cv2.resize(img, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
 
-    # Resize
-    img = cv2.resize(img, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
+#     # Convert to grayscale
+#     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # Convert to grayscale
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+#     # Remove noise
+#     blur = cv2.GaussianBlur(gray, (5, 5), 0)
 
-    # Remove noise
-    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+#     scanned = cv2.adaptiveThreshold(
+#         blur,
+#         255,
+#         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+#         cv2.THRESH_BINARY,
+#         15,   # block size
+#         3     # constant
+#     )
 
-    scanned = cv2.adaptiveThreshold(
-        blur,
-        255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY,
-        15,   # block size
-        3     # constant
-    )
+#     # Sharpen text
+#     kernel = np.array([[0,-1,0],[-1,5,-1],[0,-1,0]])
+#     scanned = cv2.filter2D(scanned, -1, kernel)
 
-    # Sharpen text
-    kernel = np.array([[0,-1,0],[-1,5,-1],[0,-1,0]])
-    scanned = cv2.filter2D(scanned, -1, kernel)
+#     cv2.imwrite("scanned_output.png", scanned)
 
-    cv2.imwrite("scanned_output.png", scanned)
+#     return "scanned_output.png"
 
-    return "scanned_output.png"
-
-output = scan_prescription("image.png")
-print("Saved:", output)
+# output = scan_prescription("image.png")
+# print("Saved:", output)
 
 load_dotenv()
 
@@ -48,6 +47,7 @@ client = ChatGroq(
     model_name="meta-llama/llama-4-scout-17b-16e-instruct"
 )
 
+@tool
 def ocr_image(image_path):
     with open(image_path, "rb") as image_file:
         encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
@@ -60,8 +60,9 @@ def ocr_image(image_path):
     mime_type = mime_map.get(ext, "image/png")
 
     system_prompt = SystemMessage(content="""
-        - You are an OCR assistant. 
-        - Extract all the medicine written in the image and list them along with their dosage or days to take the medcine. 
+        - You need to work as OCR, your role is to only extract what is written inside the image.
+        - you do not add anything to the content, just read what is inside image and output it
+        - Extract all the medicines written in the image and list them along with their dosage or days to take the medcine. 
         - If there is no medicine, just say 'No medicine found'.
         - If there is no dosage or days to take the medicine, just say 'No dosage found'.
         - Never make anything yourself, only extract what is written in the image.
@@ -86,7 +87,7 @@ def ocr_image(image_path):
     return response.content
 
 if __name__ == "__main__":
-    image_path = "doc.png"
+    image_path = "local_mcp/file_handle/workspace/doc.png"
     extracted_text = ocr_image(image_path)
     print(extracted_text)
 

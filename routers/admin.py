@@ -611,8 +611,7 @@ async def get_hospital_policy(admin : admin_dependency, db : db_dependency, hosp
 @router.post("/notification/", status_code = 200)
 async def send_notification(admin : admin_dependency,  db : db_dependency,  notification : NotificationRequest):
     try :
-        await create_notification(
-            db, 
+        await create_notification( 
             notification.message, 
             notification.recipient_id, 
             notification.recipient_role
