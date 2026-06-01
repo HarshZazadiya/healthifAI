@@ -1,4 +1,4 @@
-﻿# HealthifAI / SCANBO
+﻿# HealthifAI
 
 HealthifAI is a full-stack healthcare platform powered by FastAPI, React, and AI services. It combines role-based user management, medical appointment booking, document handling, wallet/payments, and AI-assisted healthcare chat into one integrated system.
 
@@ -104,7 +104,7 @@ pip install -r requirements.txt
 Create a .env file at the repository root with values for at least the following:
 
 ```bash
-DATABASE_URL=postgresql://user:password@localhost:5432/scanbo
+DATABASE_URL=postgresql://user:password@localhost:5432/healthifai
 SECRET_KEY=your_secret_key
 ALGORITHM=HS256
 FRONTEND_URL=http://localhost:5173
