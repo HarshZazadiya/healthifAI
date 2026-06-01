@@ -312,7 +312,7 @@ const ChatPanel = ({ user, onShowToast, onOpenDocumentViewer, onSeeDoctorInfo, p
                     <div className="font-semibold text-slate-800">Dr. {doctor.name}</div>
                     <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-500' : 'bg-gray-400'}`}></div>
                   </div>
-                  <div className="text-xs text-slate-500 mt-1">{doctor.specialty || 'General Practitioner'}</div>
+                  <div className="text-xs text-slate-500 mt-1">{doctor.speciality || 'General Practitioner'}</div>
                   {existingRoom?.last_message && <div className="text-xs text-slate-400 mt-1 truncate">{existingRoom.last_message}</div>}
                   {!doctor.has_active_chat && (
                     <button
@@ -877,7 +877,7 @@ const HospitalDashboard = () => {
               <div key={d.id} className="flex justify-between items-center p-3 border border-slate-100 rounded-xl">
                 <div>
                   <p className="font-semibold text-slate-800">Dr. {d.name}</p>
-                  <p className="text-xs text-slate-500">{d.specialty || 'General'}</p>
+                  <p className="text-xs text-slate-500">{d.speciality || 'General'}</p>
                 </div>
                 <span className={`px-2 py-1 text-xs font-bold rounded ${d.availability ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                   {d.availability ? 'Available' : 'Unavailable'}
@@ -1039,7 +1039,7 @@ const HospitalDashboard = () => {
 
               <div className="space-y-2 mb-4 text-sm">
                 <p className="flex items-center gap-2 text-slate-600"><Mail size={14} /> {d.registered_email || d.email}</p>
-                <p className="flex items-center gap-2 text-slate-600"><Star size={14} /> {d.specialty || 'General'}</p>
+                <p className="flex items-center gap-2 text-slate-600"><Star size={14} /> {d.speciality || 'General'}</p>
                 {d.rating && <p className="flex items-center gap-2 text-slate-600"><Star className="fill-amber-400 text-amber-400" size={14} /> {d.rating} Rating</p>}
               </div>
             </div>
@@ -1647,7 +1647,7 @@ const HospitalDashboard = () => {
                 </div>
                 <div>
                   <h3 className="text-xl font-bold text-slate-800">Dr. {selectedDoctorDetails.name}</h3>
-                  <p className="text-sm text-indigo-600 font-semibold">{selectedDoctorDetails.specialty || 'General Practitioner'}</p>
+                  <p className="text-sm text-indigo-600 font-semibold">{selectedDoctorDetails.speciality || 'General Practitioner'}</p>
                 </div>
               </div>
               <button onClick={() => setSelectedDoctorDetails(null)} className="p-2 text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full transition-colors">
@@ -1860,7 +1860,7 @@ const HospitalDashboard = () => {
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Attending Doctor</p>
                 <p className="font-semibold text-slate-800 text-sm">Dr. {selectedUserDetails.doctor_name || 'None Assigned'}</p>
                 {selectedUserDetails.doctor_email && (
-                  <p className="text-xs text-slate-500 mt-0.5">{selectedUserDetails.doctor_email} • {selectedUserDetails.doctor_specialty || 'General Practitioner'}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{selectedUserDetails.doctor_email} • {selectedUserDetails.doctor_speciality || 'General Practitioner'}</p>
                 )}
               </div>
 

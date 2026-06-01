@@ -492,7 +492,7 @@ const ChatPanel = ({ user, onShowToast, onOpenDocumentViewer, assignedPatientsPr
                       <div className="font-semibold text-slate-800">Dr. {colleague.name}</div>
                       <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-500' : 'bg-gray-400'}`}></div>
                     </div>
-                    <div className="text-xs text-blue-600 font-medium mt-0.5">{colleague.specialty || 'General Practice'}</div>
+                    <div className="text-xs text-blue-600 font-medium mt-0.5">{colleague.speciality || 'General Practice'}</div>
                     {existingRoom?.last_message && <div className="text-xs text-slate-400 mt-1 truncate">{existingRoom.last_message}</div>}
                   </div>
                 );
@@ -683,7 +683,7 @@ const DoctorDashboard = () => {
   const { logout, user: authUser } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
   const [profile, setProfile] = useState({});
-  const [editProfile, setEditProfile] = useState({ username: '', email: '', specialty: '', availability: '' });
+  const [editProfile, setEditProfile] = useState({ username: '', email: '', speciality: '', availability: '' });
 
   const [selectedUserModal, setSelectedUserModal] = useState(null);
   const [selectedDoctorModal, setSelectedDoctorModal] = useState(null);
@@ -857,7 +857,7 @@ const DoctorDashboard = () => {
       } else if (activeTab === 'profile') {
         const res = await api.get('/doctor/profile');
         setProfile(res.data);
-        setEditProfile({ username: res.data.name, email: res.data.email, specialty: res.data.specialty, availability: res.data.availability });
+        setEditProfile({ username: res.data.name, email: res.data.email, speciality: res.data.speciality, availability: res.data.availability });
       } else if (activeTab === 'cases') {
         const params = { page: casesPage, limit: 20 };
         if (caseFilters.status) params.status = caseFilters.status;
@@ -945,7 +945,7 @@ const DoctorDashboard = () => {
     try {
       const res = await api.get('/doctor/profile');
       setProfile(res.data);
-      setEditProfile({ username: res.data.name, email: res.data.email, specialty: res.data.specialty, availability: res.data.availability });
+      setEditProfile({ username: res.data.name, email: res.data.email, speciality: res.data.speciality, availability: res.data.availability });
     } catch (err) {
       console.error("Failed to load doctor profile", err);
     }
@@ -1197,7 +1197,7 @@ const DoctorDashboard = () => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Specialty</label>
-              <input value={editProfile.specialty} onChange={e => setEditProfile({ ...editProfile, specialty: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none" />
+              <input value={editProfile.speciality} onChange={e => setEditProfile({ ...editProfile, speciality: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Availability</label>
@@ -1470,7 +1470,7 @@ const DoctorDashboard = () => {
               <div className="w-12 h-12 bg-blue-50 text-blue-600 font-extrabold rounded-full flex items-center justify-center text-base border border-blue-100 shadow-sm shrink-0">{doc.name?.charAt(0) || 'D'}</div>
               <div className="space-y-1 min-w-0 flex-1">
                 <h4 className="font-extrabold text-slate-800 truncate text-base">Dr. {doc.name}</h4>
-                <p className="text-xs font-bold text-blue-600 uppercase tracking-wider">{doc.specialty || 'General Practitioner'}</p>
+                <p className="text-xs font-bold text-blue-600 uppercase tracking-wider">{doc.speciality || 'General Practitioner'}</p>
                 <div className="pt-2 text-xs text-slate-400 space-y-0.5">
                   <p className="truncate"><span className="font-medium text-slate-500">Email:</span> {doc.registered_email}</p>
                   {doc.google_email_id && (
@@ -1782,7 +1782,7 @@ const DoctorDashboard = () => {
               </span>
               <h3 className="text-2xl font-black text-slate-800 mt-2">Dr. {selectedDoctorModal.name}</h3>
               <p className="text-sm font-semibold text-blue-600 uppercase tracking-wide mt-1">
-                {selectedDoctorModal.specialty || 'General Practice'}
+                {selectedDoctorModal.speciality || 'General Practice'}
               </p>
             </div>
 

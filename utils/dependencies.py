@@ -3,10 +3,10 @@ from typing import Annotated
 from jose import jwt, JWTError
 from database import SessionLocal
 from sqlalchemy.orm import Session
-from utils.helper import oauth2_bearer
 from fastapi import Depends, HTTPException
 from models import Users, Doctors, Hospitals
 from utils.get_current_requester import get_current_requester_by_token
+from utils.helper import oauth2_bearer
 
 # =====================================================================================
 # CONFIG

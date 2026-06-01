@@ -1,31 +1,40 @@
 import os
+import sys
+import asyncio
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    # Prevent uvicorn from overriding the policy to ProactorEventLoopPolicy
+    asyncio.set_event_loop_policy = lambda policy: None
+    
+    # Override uvicorn's loop factory to force it to use SelectorEventLoop
+    try:
+        import uvicorn.loops.asyncio
+        uvicorn.loops.asyncio.asyncio_loop_factory = lambda use_subprocess=False: asyncio.SelectorEventLoop
+    except ImportError:
+        pass
+
 import uvicorn
 import requests
 import urllib.parse
-from typing import Annotated
 from jose import jwt, JWTError
 from logs.logging import logger
-from database import SessionLocal
-from database import engine, Base
 from requests.compat import urljoin
-from fastapi import Request, Depends
 from utils.helper import bcrypt_context
-from fastapi import HTTPException, FastAPI
 from contextlib import asynccontextmanager
 from logs.middleware import log_middleware
 from utils.redis_config import redis_client
-from fastapi.staticfiles import StaticFiles
+from utils.dependencies import db_dependency
+from fastapi.responses import RedirectResponse
+from database import engine, Base, SessionLocal
 from schedulers.logs_deleter import cleanup_logs
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import HTTPException, FastAPI, Request
 from models import Users, Wallet, Doctors, Hospitals
-from utils.helper import bcrypt_context, oauth2_bearer
 from starlette.middleware.base import BaseHTTPMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from AI.graph import init_checkpointer, close_checkpointer
 from utils.google_credential_handler import handle_google_login
-from utils.dependencies import requester_dependency, db_dependency
-from utils.get_current_requester import get_current_requester_by_token
-from routers import user, doctor, admin, auth, default, chat, hospital
-from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
+from routers import user, doctor, admin, auth, default, chat, hospital, chatbot
 from utils.get_current_requester import get_current_requester_by_id_and_role
 
 def get_db():
@@ -41,17 +50,7 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 50)
     logger.info("Application starting up...")
 
-    # 0. Configure Redis
-    # logger.info("Configuring Redis...")
-    # configure_redis()
-
-    # 1. Initialize FAISS
-    # logger.info("Initializing vector store...")
-    # store = get_vector_store()
-    # logger.info(f"FAISS ready with {store.index.ntotal} vectors")
-
-    # 3. Initialize async Postgres checkpointer
-    # await init_checkpointer()
+    await init_checkpointer()
 
     # 4. Create default admin if none exists
     db = SessionLocal()
@@ -116,40 +115,20 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Error cleaning logs: {e}")
     
-    # await close_checkpointer()
+    await close_checkpointer()
     # cleanup()
-    # logger.info("=" * 50)
+    logger.info("=" * 50)
 
 
 app = FastAPI(lifespan = lifespan)
 
 Base.metadata.create_all(bind = engine)
 
-try:
-    app.mount("/documents", StaticFiles(directory = "documents"), name = "documents")
-    app.mount("/frontend", StaticFiles(directory = "frontend"), name = "frontend")
-
-except Exception as e:
-    logger.info(f"Error mounting static files: {e}")
-    logger.info("===== trying to create new folder =====")
-    try:
-        os.mkdir("documents")
-        app.mount("/documents", StaticFiles(directory = "documents"), name = "documents")
-        logger.info("New folder created")
-        os.mkdir("frontend")
-        app.mount("/frontend", StaticFiles(directory = "frontend"), name = "frontend")
-        logger.info("New folder created")
-    except Exception as e:
-        logger.info(f"Error creating new folder: {e}")
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174",
-        "http://localhost:3000",
+        os.getenv("FRONTEND_URL"),
+        os.getenv("REACT_BASE_URL")
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -165,6 +144,7 @@ app.include_router(doctor.router)
 app.include_router(hospital.router)
 app.include_router(admin.router)
 app.include_router(chat.router)
+app.include_router(chatbot.router)
 
 # Google OAuth constants
 CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
@@ -250,7 +230,7 @@ async def google_callback(request: Request, db : db_dependency):
     actual_user_id = int(user_id)
     actual_role = role.lower()
     
-    requester = await get_current_requester_by_id_and_role(actual_user_id, actual_role, db)
+    requester = await get_current_requester_by_id_and_role(actual_user_id, actual_role)
 
     if "refresh_token" not in google_tokens:
         return {"error" : "Failed to get refresh token", "details" : google_tokens}

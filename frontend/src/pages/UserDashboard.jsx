@@ -125,7 +125,7 @@ const DoctorDetailsModal = ({ doctor, hospital, userLocation, onClose, onChat, o
             </div>
             <div>
               <h3 className="text-xl font-black text-slate-800">Dr. {doctor.name}</h3>
-              <p className="text-blue-600 font-medium text-sm">{doctor.specialty || 'General Physician'}</p>
+              <p className="text-blue-600 font-medium text-sm">{doctor.speciality || 'General Physician'}</p>
             </div>
           </div>
         </div>
@@ -626,7 +626,7 @@ const ChatPanel = ({ user, onShowToast, onOpenDocumentViewer, onSeeDoctorInfo, o
                     <div className="font-semibold text-slate-800">Dr. {doc.name}</div>
                     <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-500' : 'bg-gray-400'}`}></div>
                   </div>
-                  <div className="text-xs text-slate-500 mt-1">{doc.specialty || 'Doctor'}</div>
+                  <div className="text-xs text-slate-500 mt-1">{doc.speciality || 'Doctor'}</div>
                   {existingRoom?.last_message && <div className="text-xs text-slate-400 mt-1 truncate">{existingRoom.last_message}</div>}
                 </div>
               );
@@ -796,7 +796,7 @@ const ChatPanel = ({ user, onShowToast, onOpenDocumentViewer, onSeeDoctorInfo, o
                       </div>
                       <div>
                         <h2 className="text-lg font-extrabold">Dr. {doctorModalData.name}</h2>
-                        <p className="text-blue-200 text-sm font-medium">{doctorModalData.specialty || 'General'}</p>
+                        <p className="text-blue-200 text-sm font-medium">{doctorModalData.speciality || 'General'}</p>
                       </div>
                     </div>
                     <button onClick={() => setShowDoctorModal(false)} className="p-1.5 text-white/60 hover:text-white hover:bg-white/10 rounded-xl transition-all">
@@ -1050,7 +1050,7 @@ const UserDashboard = () => {
   const [allDocuments, setAllDocuments] = useState([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [filters, setFilters] = useState({ doctor_name: '', hospital_name: '', specialty: '' });
+  const [filters, setFilters] = useState({ doctor_name: '', hospital_name: '', speciality: '' });
   const [caseSearch, setCaseSearch] = useState('');
   const [toastMessage, setToastMessage] = useState('');
   const [showLocationPicker, setShowLocationPicker] = useState(false);
@@ -1893,7 +1893,7 @@ const UserDashboard = () => {
                     <span className="bg-emerald-100 text-emerald-700 px-2 py-1 rounded text-xs font-bold">₹{doctor.fees} / visit</span>
                   </div>
                   <h3 className="font-bold text-lg text-slate-800 mb-1">Dr. {doctor.name}</h3>
-                  <p className="text-blue-600 font-medium text-sm mb-3">{doctor.specialty || 'General Physician'}</p>
+                  <p className="text-blue-600 font-medium text-sm mb-3">{doctor.speciality || 'General Physician'}</p>
                   <div className="space-y-2 text-sm text-slate-600 mb-6">
                     <p className="flex items-center gap-2"><MapPin size={14} className="text-slate-400" /> {hospital.hospital_name}</p>
                   </div>
@@ -1958,7 +1958,7 @@ const UserDashboard = () => {
                 setSelectedDoctor({
                   id: d.doctor_id,
                   name: d.name || "Unknown",
-                  specialty: d.specialty || "General",
+                  speciality: d.speciality || "General",
                   email: d.email || "",
                   phone_number: d.phone_number || "",
                   fees: d.fees || 0,
@@ -1977,7 +1977,7 @@ const UserDashboard = () => {
               }}
             >
               <h3 className="font-bold text-lg text-slate-800">Dr. {d.name}</h3>
-              <p className="text-indigo-600 font-medium text-sm mb-3">{d.specialty || 'General'}</p>
+              <p className="text-indigo-600 font-medium text-sm mb-3">{d.speciality || 'General'}</p>
               <div className="space-y-2 text-sm text-slate-600 mb-4 flex-1">
                 <p className="flex items-center gap-2"><MapPin size={14} className="text-slate-400" /> {d.hospital_name || d.hospital}</p>
               </div>
@@ -2180,7 +2180,7 @@ const UserDashboard = () => {
                 <div className="flex justify-between h-full">
                   <div className="flex flex-col">
                     <h4 className="font-bold text-lg text-slate-800">Dr. {d.name}</h4>
-                    <p className="text-rose-500 text-sm font-medium">{d.specialty || 'General'}</p>
+                    <p className="text-rose-500 text-sm font-medium">{d.speciality || 'General'}</p>
                     <p className="text-slate-600 text-sm mt-auto pt-3"><Building2 size={14} className="inline mr-1" />{d.hospital_name}</p>
                   </div>
                   <div className="text-right flex flex-col justify-between">
@@ -2422,7 +2422,7 @@ const UserDashboard = () => {
         setSelectedDoctor({
           id: doc.doctor_id,
           name: doc.name || 'Unknown',
-          specialty: doc.specialty || 'General',
+          speciality: doc.speciality || 'General',
           email: doc.email || '',
           phone_number: doc.phone_number || '',
           fees: doc.fees || 0,

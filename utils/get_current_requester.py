@@ -3,8 +3,8 @@ from fastapi import Depends, HTTPException
 from jose import JWTError, jwt
 from database import SessionLocal
 from models import Users, Doctors, Hospitals
-from typing import Annotated
-from routers.auth import oauth2_bearer
+from typing import Annotated, Optional
+from utils.helper import oauth2_bearer
 from sqlalchemy.orm import Session  
 
 SECRET_KEY = os.getenv("SECRET_KEY")
@@ -19,7 +19,8 @@ def get_db():
 
 db_dependency = Annotated[Session, Depends(get_db)]
 
-async def get_current_requester_by_token(token : Annotated[str, Depends(oauth2_bearer)], db : db_dependency):
+async def get_current_requester_by_token(token : Annotated[str, Depends(oauth2_bearer)]):
+    db = SessionLocal()
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms = [ALGORITHM])
         id = payload.get("id")
@@ -49,22 +50,27 @@ async def get_current_requester_by_token(token : Annotated[str, Depends(oauth2_b
 
     except JWTError:
         raise HTTPException(status_code = 401, detail = "Invalid token")
+    finally:
+        db.close()
     
-async def get_current_requester_by_id_and_role(id : int, role : str, db : db_dependency):
-    if role == "user" or role == "admin":
-        requester = db.query(Users).filter(Users.id == id, Users.role == role).first()
-        email = requester.email
-        if not requester:
-            raise HTTPException(status_code = 401, detail = "Invalid token")
-    elif role == "doctor":
-        requester = db.query(Doctors).filter(Doctors.id == id).first()
-        email = requester.email
-        if not requester:
-            raise HTTPException(status_code = 401, detail = "Invalid token")
-    elif role == "hospital":
-        requester = db.query(Hospitals).filter(Hospitals.id == id).first()
-        email = requester.email
-        if not requester:
-            raise HTTPException(status_code = 401, detail = "Invalid token")
+async def get_current_requester_by_id_and_role(id : int , role : str):
+    db = SessionLocal()
+    try :
+        if role == "user" or role == "admin":
+            requester = db.query(Users).filter(Users.id == id, Users.role == role).first()
+            if not requester:
+                raise HTTPException(status_code = 401, detail = "Invalid token")
+        elif role == "doctor":
+            requester = db.query(Doctors).filter(Doctors.id == id).first()
+            if not requester:
+                raise HTTPException(status_code = 401, detail = "Invalid token")
+        elif role == "hospital":
+            requester = db.query(Hospitals).filter(Hospitals.id == id).first()
+            if not requester:
+                raise HTTPException(status_code = 401, detail = "Invalid token")
 
-    return requester
+        return requester
+    except Exception as e:
+        raise HTTPException(status_code = 401, detail = "Invalid token")
+    finally:
+        db.close()

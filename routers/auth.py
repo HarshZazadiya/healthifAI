@@ -2,15 +2,14 @@ import os
 from typing import Annotated
 from pydantic import BaseModel
 from jose import jwt, JWTError
-from database import SessionLocal
 from sqlalchemy.orm import Session
-from datetime import timedelta, datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
-from models import Users, Doctors, Wallet, Hospitals
-from fastapi.security import OAuth2PasswordRequestForm
-from utils.helper import bcrypt_context, oauth2_bearer
 from fastapi import BackgroundTasks
-from utils.hospital_location_getter import hospital_location_getter 
+from datetime import timedelta, datetime, timezone
+from models import Users, Doctors, Wallet, Hospitals
+from fastapi import APIRouter, Depends, HTTPException
+from utils.helper import oauth2_bearer, bcrypt_context
+from fastapi.security import OAuth2PasswordRequestForm
+from utils.hospital_location_getter import hospital_location_getter
 from utils.dependencies import db_dependency
 
 router = APIRouter(

@@ -7,8 +7,6 @@ from typing import Annotated, List, Optional
 from passlib.context import CryptContext
 from fastapi.security import OAuth2PasswordBearer
 from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
-from models import Cases
-from services.payment import handle_payment
 from services.profile import change_password
 from services.wallet import my_wallet, top_up
 from services.notification import create_notification, delete_all_notification, delete_notifications, my_notfications, mark_notifications_as_read
@@ -71,7 +69,7 @@ class DocumentIDsRequest(BaseModel):
 
 @router.put("/password", status_code = 200)
 async def password(request : PasswordRequest, requester : requester_dependency, db : db_dependency):
-    result = await change_password(request, requester, db)
+    result = await change_password(request.password, requester.get("id"), requester.get("role"))
     return result
 
 # =====================================================================================
@@ -79,30 +77,22 @@ async def password(request : PasswordRequest, requester : requester_dependency, 
 # =====================================================================================
 
 @router.put("/topUp")
-async def top_up_wallet(db: db_dependency, payment_request: PaymentRequest, token: Annotated[str, Depends(oauth2_bearer)]):
+async def top_up_wallet(db: db_dependency, payment_request: PaymentRequest, requester : requester_dependency):
     """Add money to wallet"""
     if payment_request.amount <= 0:
         raise HTTPException(status_code = 400, detail = "Amount must be positive")
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms = [ALGORITHM])
-        owner_role = payload.get("role")
-        logger.info(f"Decoded token : {payload}")
-        if not owner_role:
-            raise HTTPException(status_code = 401, detail = "Token missing 'role' claim")
-        owner_type = payload.get("type")
-        owner_id   = payload.get("id")
-        owner_role = payload.get("role")
+    try:     
+        owner_type = requester.get("type")
+        owner_id   = requester.get("id")
+        owner_role = requester.get("role")
     except JWTError:
         raise HTTPException(status_code = 401, detail = "Invalid token")
 
     try:
         result = await top_up(db, payment_request.amount, owner_id, owner_role, owner_type)
-    except HTTPException as e:
-        logger.error(f"Top-up failed: {e.detail}")
-        raise
     except Exception as e:
         logger.exception("Unexpected error during top-up")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code = 400, detail = str(e))
 
     if redis_client:
         try:
@@ -133,7 +123,7 @@ async def get_my_wallet(db : db_dependency, token : Annotated[str, Depends(oauth
     #     except Exception as e:
     #         logger.info(f"⚠️ Redis cache get failed (non-critical) : {e}")
 
-    result = await my_wallet(db, owner_id, owner_role)
+    result = await my_wallet(owner_id, owner_role)
 
     if redis_client:
         try:
@@ -150,59 +140,21 @@ async def get_my_wallet(db : db_dependency, token : Annotated[str, Depends(oauth
 
 @router.get("/documents", status_code = 200)
 async def get_documents(requester : requester_dependency, db : db_dependency, limit : int = 20, offset : int = 0, case_id : Optional[int] = None):
-    result =  await get_document(db, requester["id"], requester["role"], limit, offset, case_id)
+    result =  await get_document(requester["id"], requester["role"], limit, offset, case_id)
     return result
 
 @router.post("/documents", status_code = 200)
 async def upload_document(requester : requester_dependency, db : db_dependency, type : str, case_id : Optional[int] = None, document : UploadFile = File(...)):
     if requester["role"] == "hospital" or requester["role"] == "admin":
         raise HTTPException(status_code = 400, detail = "You cannot upload document in the case")
-    # add document to the database
-    result = await add_document(db, requester["id"], requester["role"], document, type.upper(), case_id)
-    # send notification to the other party in the case if case_id is provided
-    if case_id is not None:
-        case = db.query(Cases).filter(Cases.id == case_id).first()
-        if not case:
-            raise HTTPException(status_code = 404, detail = "Case not found")
-        if requester["role"] == "user":
-            recipient_id = case.doctor_id
-            recipient_role = "doctor"
-        elif requester["role"] == "doctor":
-            recipient_id = case.user_id
-            recipient_role = "user"
-        else :
-            raise HTTPException(status_code = 401, detail = "Unauthorized access")
-        
-        await create_notification(f"New document uploaded in case {case.case_id}", recipient_id, recipient_role)    
+    result = await add_document(requester["id"], requester["role"], document, type.upper(), case_id)
     return result
 
 @router.delete("/documents/{doc_id}", status_code = 200)
 async def delete_document(doc_id : int, requester : requester_dependency, db : db_dependency, force : bool = False, background_tasks: BackgroundTasks = BackgroundTasks() ):
     if requester["role"] == "hospital" or requester["role"] == "admin":
         raise HTTPException(status_code = 400, detail = "You cannot delete document in the case")
-    result = await remove_document(db, doc_id, requester["id"], requester["role"], force)
-    # send notification to the other party in the case if force is true
-    if force is True:
-        cases = result.get("cases_affected")
-        if len(cases) == 0:
-            raise HTTPException(status_code = 404, detail = "Document not found in any case")
-        # get doctor id and user id from case id
-        for case in cases:
-            if requester["role"] == "user":
-                recipient_id = case.doctor_id
-                recipient_role = "doctor"
-            elif requester["role"] == "doctor":
-                recipient_id = case.user_id
-                recipient_role = "user"
-            else :
-                raise HTTPException(status_code = 401, detail = "Unauthorized access")
-            background_tasks.add_task(
-                create_notification, 
-                f"Document deleted in case {case.case_id} by {requester['role']} named {requester['name']}", 
-                recipient_id, 
-                recipient_role
-            )
-
+    result = await remove_document(doc_id, requester["id"], requester["role"], requester["name"], force)
     return result
 
 @router.api_route("/view", methods=["GET", "HEAD"], status_code = 200)
@@ -279,17 +231,17 @@ async def send_notification(admin : admin_dependency, db : db_dependency, reciev
 
 @router.get("/notifications", status_code = 200)
 async def get_notifications(requester : requester_dependency, db : db_dependency):
-    notifications = await my_notfications(db, requester["id"], requester["role"])
+    notifications = await my_notfications(requester["id"], requester["role"])
     return {"notifications" : notifications, "count" : len(notifications)}
 
 @router.put("/notification", status_code = 200)
 async def mark_notification_as_read(requester : requester_dependency, db : db_dependency, notification_id : Optional[int] = None):
     if notification_id :
         # mark one as read
-        result = await mark_notifications_as_read(db, requester["id"], requester["role"], notification_id = notification_id)
+        result = await mark_notifications_as_read(requester["id"], requester["role"], notification_id = notification_id)
     else :
         # mark all as read
-        result = await mark_notifications_as_read(db, requester["id"], requester["role"])
+        result = await mark_notifications_as_read(requester["id"], requester["role"])
     
     if result is None:
         raise HTTPException(status_code = 404, detail = "Notification not found")
@@ -298,12 +250,12 @@ async def mark_notification_as_read(requester : requester_dependency, db : db_de
 @router.delete("/notification/{notification_id}", status_code = 200)
 async def delete_notification(requester : requester_dependency, db : db_dependency, notification_id : Optional[int]) :
     if notification_id :
-        result = await delete_notifications(db, notification_id, requester["id"], requester["role"])
+        result = await delete_notifications(notification_id, requester["id"], requester["role"])
         if result is None:
             raise HTTPException(status_code = 404, detail = "Notification not found")
         return result
     else :
-        result = await delete_all_notification(db, requester["id"], requester["role"])
+        result = await delete_all_notification(requester["id"], requester["role"])
         if result is None:
             raise HTTPException(status_code = 404, detail = "Notification not found")
         return result

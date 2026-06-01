@@ -20,10 +20,12 @@ llm = ChatGroq(
 # EMBEDDINGS
 # ============================================================
 
+HF_TOKEN = os.getenv("HF_TOKEN")
+
 logger.info("Initializing HuggingFace Embeddings...")
 embeddings = HuggingFaceEmbeddings(
     model_name = "sentence-transformers/all-MiniLM-L6-v2",
-    model_kwargs = {"device": "cpu"},
+    model_kwargs={"device": "cpu", "use_auth_token": HF_TOKEN},
     encode_kwargs = {"normalize_embeddings": True}
 )
 

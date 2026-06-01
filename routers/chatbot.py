@@ -1,26 +1,22 @@
 import os
 from pydantic import BaseModel
-from jose import jwt, JWTError
 from AI.graph import run_agent
+from logs.logging import logger
+from typing import Optional, List
 from database import SessionLocal
 from sqlalchemy.orm import Session
-from typing import Annotated, Optional, List
-from fastapi import APIRouter, Depends, HTTPException
-from models import Users, ChatThread, ChatMessage
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from AI.config.user_config import get_user_sensitive_tools, update_user_sensitive_tools
-from utils.dependencies import db_dependency
+from models import ChatThread, ChatMessage
+from fastapi import APIRouter, HTTPException
+from utils.dependencies import db_dependency, requester_dependency
+from AI.config.user_config import get_requester_sensitive_tools, update_requester_sensitive_tools
 
 router = APIRouter(
-        prefix = "/chat", 
-        tags = ["Chat"]
-    )
+    prefix = "/chatbot", 
+    tags = ["Chatbot"]
+)
 
-SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret")
-ALGORITHM = "HS256"
-
-
-security = HTTPBearer()
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = os.getenv("ALGORITHM")
 
 # ============================================================
 # PYDANTIC MODELS
@@ -58,67 +54,36 @@ class UpdateSettingsRequest(BaseModel):
     tools: list[str]
 
 # ============================================================
-# AUTHENTICATION
-# ============================================================
-def get_user_from_token(token : str, db : Session):
-    """Extract user info from JWT token"""
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms = [ALGORITHM])
-        user_id = payload.get("id")
-        user_type = payload.get("type")  # 'user' or 'host'
-        role = payload.get("role")  # 'user', 'host', 'admin'
-        
-        # Determine owner_type and get name
-        if role == "admin":
-            user = db.query(Users).filter(Users.id == user_id).first()
-            name = user.name if user else "Admin"
-        elif user_type == "host":
-            host = db.query(Hosts).filter(Hosts.id == user_id).first() 
-            name = host.company_name if host else "Host"
-        else:
-            user = db.query(Users).filter(Users.id == user_id).first()
-            name = user.name if user else "User"
-        
-        return {
-            "id" : user_id,
-            "role" : role,
-            "name" : name,
-        }
-    except JWTError:
-        return None
-
-async def get_current_user(db : db_dependency, credentials : HTTPAuthorizationCredentials = Depends(security)):
-    """Dependency to get current authenticated user"""
-    current_user = get_user_from_token(credentials.credentials, db)
-    if not current_user:
-        raise HTTPException(status_code = 401, detail = "Invalid token")
-    return current_user
-
-# ============================================================
 # THREAD MANAGEMENT
 # ============================================================
-def get_or_create_thread(db : db_dependency , user_info : dict, thread_id : Optional[int] = None):
+def get_or_create_thread(requester_info : dict, thread_id : Optional[int] = None):
     """Get existing thread or create new one (with owner isolation)"""
-    if thread_id:
-        # Verify thread belongs to user
-        thread = db.query(ChatThread).filter(
-            ChatThread.id == thread_id,
-            ChatThread.owner_id == user_info["id"],
-            ChatThread.owner_type == user_info["role"]
-        ).first()
-        if thread:
-            return thread
-    
-    # Create new thread
-    thread = ChatThread(
-        owner_id = user_info["id"],
-        owner_type = user_info["role"]
-    )
-    db.add(thread)
-    db.commit()
-    db.refresh(thread)
-    print(f"✅ Created new thread: {thread.id} for {user_info['name']}")
-    return thread
+    db = SessionLocal() 
+    try :
+        if thread_id:
+            # Verify thread belongs to requester
+            thread = db.query(ChatThread).filter(
+                ChatThread.id == thread_id,
+                ChatThread.user_id == requester_info["id"],
+                ChatThread.role == requester_info["role"]
+            ).first()
+            if thread:
+                return thread
+        
+        # Create new thread
+        thread = ChatThread(
+            user_id = requester_info["id"],
+            role = requester_info["role"]
+        )
+        db.add(thread)
+        db.commit()
+        db.refresh(thread)
+        logger.info(f" Created new thread : {thread.id} for {requester_info['name']}")
+        return thread
+    except Exception as e:
+        raise HTTPException(status_code = 500, detail = str(e))
+    finally:
+        db.close()
 
 def save_message(db: Session, thread_id: int, role: str, content: str):
     """Save a message to database"""
@@ -144,38 +109,37 @@ def get_conversation_history(db : db_dependency, thread_id: int, limit : int = 1
 # MAIN CHAT ENDPOINT
 # ============================================================
 @router.post("/ask", response_model = ChatResponse)
-async def ask_chat(db : db_dependency, request : ChatRequest, user : dict = Depends(get_current_user)):
+async def ask_chat(db : db_dependency, request : ChatRequest, requester : requester_dependency):
     """Main chat endpoint - handles normal messages and HITL approval responses"""
     try:
-        thread = get_or_create_thread(db, user, request.thread_id)
+        thread = get_or_create_thread(requester, request.thread_id)
 
-        print(f"\n{'='*60}")
-        print(f"💬 Processing message from {user['name']} ({user['role']})")
-        print(f"📝 Thread: {thread.id}")
-        print(f"📨 Message: {request.message}")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"  Processing message from {requester['name']} ({requester['role']})")
+        logger.info(f"  Thread : {thread.id}")
+        logger.info(f"  Message : {request.message}")
         if request.human_approval:
-            print(f"👤 Human approval: {request.human_approval}")
-        print(f"{'='*60}")
+            logger.info(f" Human approval : {request.human_approval}")
+        logger.info(f"{'='*60}")
 
+        requester_sensitive_tools = get_requester_sensitive_tools(db, requester["id"], requester["role"]) 
 
-        user_sensitive_tools = get_user_sensitive_tools(db, user["id"], user["role"])
-
-        user_info = {
-            "id": user["id"],
-            "role": user["role"],
-            "name": user["name"],
-            "sensitive_tools": user_sensitive_tools
+        requester_info = {
+            "id" : requester["id"],
+            "role" : requester["role"],
+            "name" : requester["name"],
+            "sensitive_tools" : requester_sensitive_tools
         }
 
-        # ── HITL resume: user replied yes/no ─────────────────
+        # ── HITL resume: requester replied yes/no ─────────────────
         if request.human_approval is not None:
             approval = request.human_approval.strip().lower()
 
-            save_message(db, thread.id, "user", f"[Approval : {request.human_approval}] {request.message}")
+            save_message(db, thread.id, "requester", f"[Approval : {request.human_approval}] {request.message}")
 
             result = await run_agent(
-                user_input = request.message,
-                user_info = user_info,
+                requester_input = request.message,
+                requester_info = requester_info,
                 thread_id = thread.id,
                 human_approval = approval,
             )
@@ -184,16 +148,16 @@ async def ask_chat(db : db_dependency, request : ChatRequest, user : dict = Depe
             return ChatResponse(
                 response = result["content"],
                 thread_id = thread.id,
-                role = user["role"],
+                role = requester["role"],
                 tools_used = result.get("tools_used", []),
             )
 
         # ── Normal first-turn message ─────────────────────────
-        save_message(db, thread.id, "user", request.message)
+        save_message(db, thread.id, "requester", request.message)
 
         result = await run_agent(
             user_input = request.message,
-            user_info = user_info,
+            user_info = requester_info,
             thread_id = thread.id,
         )
 
@@ -203,7 +167,7 @@ async def ask_chat(db : db_dependency, request : ChatRequest, user : dict = Depe
             return ChatResponse(
                 response = result["content"],
                 thread_id = thread.id,
-                role = user["role"],
+                role = requester["role"],
                 hitl_required = True,
                 hitl_tools = result.get("tools", []),
             )
@@ -213,12 +177,12 @@ async def ask_chat(db : db_dependency, request : ChatRequest, user : dict = Depe
         return ChatResponse(
             response = result["content"],
             thread_id = thread.id,
-            role = user["role"],
+            role = requester["role"],
             tools_used = result.get("tools_used", []),
         )
 
     except Exception as e:
-        print(f"❌ Error in chat: {e}")
+        logger.info(f"Error in chat: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code = 500, detail = str(e))
@@ -227,9 +191,9 @@ async def ask_chat(db : db_dependency, request : ChatRequest, user : dict = Depe
 # THREAD MANAGEMENT ENDPOINTS
 # ============================================================
 @router.get("/threads", response_model=List[ThreadInfo])
-async def get_threads(db : db_dependency, user : dict = Depends(get_current_user)):
-    """Get all threads for current user"""
-    threads = db.query(ChatThread).filter(ChatThread.owner_id == user["id"], ChatThread.owner_type == user["role"]).order_by(ChatThread.created_at.desc()).all()
+async def get_threads(db : db_dependency, requester : requester_dependency):
+    """Get all threads for current requester"""
+    threads = db.query(ChatThread).filter(ChatThread.user_id == requester["id"], ChatThread.role == requester["role"]).order_by(ChatThread.created_at.desc()).all()
     
     result = []
     for thread in threads:
@@ -247,13 +211,13 @@ async def get_threads(db : db_dependency, user : dict = Depends(get_current_user
     
     return result
 
-@router.get("/threads/{thread_id}/messages", response_model=List[MessageInfo])
-async def get_thread_messages(db : db_dependency, thread_id: int, user: dict = Depends(get_current_user)):
+@router.get("/threads/{thread_id}/messages", response_model = List[MessageInfo])
+async def get_thread_messages(db : db_dependency, thread_id: int, requester : requester_dependency):
     """Get all messages in a thread"""
-    # Verify thread belongs to user
+    # Verify thread belongs to requester
     thread = db.query(ChatThread).filter(ChatThread.id == thread_id,
-        ChatThread.owner_id == user["id"],
-        ChatThread.owner_type == user["role"]).first()
+        ChatThread.user_id == requester["id"],
+        ChatThread.role == requester["role"]).first()
     
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
@@ -271,9 +235,9 @@ async def get_thread_messages(db : db_dependency, thread_id: int, user: dict = D
     ]
 
 @router.delete("/threads/{thread_id}")
-async def delete_thread(db : db_dependency, thread_id: int,user: dict = Depends(get_current_user)):
+async def delete_thread(db : db_dependency, thread_id: int, requester : requester_dependency):
     """Delete a thread and all its messages"""
-    thread = db.query(ChatThread).filter(ChatThread.id == thread_id, ChatThread.owner_id == user["id"], ChatThread.owner_type == user["role"]).first()
+    thread = db.query(ChatThread).filter(ChatThread.id == thread_id, ChatThread.user_id == requester["id"], ChatThread.role == requester["role"]).first()
     
     if not thread:
         raise HTTPException(status_code = 404, detail = "Thread not found")
@@ -284,12 +248,12 @@ async def delete_thread(db : db_dependency, thread_id: int,user: dict = Depends(
     return {"message": "Thread deleted successfully"}
 
 @router.patch("/threads/{thread_id}/rename")
-async def rename_thread(db : db_dependency, thread_id : int, body : RenameRequest, user : dict = Depends(get_current_user)):
+async def rename_thread(db : db_dependency, thread_id : int, body : RenameRequest, requester : requester_dependency):
     """Rename a thread using the thread_name column on ChatThread"""
     thread = db.query(ChatThread).filter(
         ChatThread.id == thread_id,
-        ChatThread.owner_id == user["id"],
-        ChatThread.owner_type == user["role"]
+        ChatThread.user_id == requester["id"],
+        ChatThread.role == requester["role"]
     ).first()
 
     if not thread:
@@ -300,8 +264,8 @@ async def rename_thread(db : db_dependency, thread_id : int, body : RenameReques
     return {"id": thread_id, "thread_name": thread.thread_name}
 
 @router.post("/settings/hitl")
-async def update_hitl_settings(db : db_dependency, body : UpdateSettingsRequest, user : dict = Depends(get_current_user)):
-    settings = update_user_sensitive_tools(db, user["id"], user["role"], body.tools)
+async def update_hitl_settings(db : db_dependency, body : UpdateSettingsRequest, requester : requester_dependency):
+    settings = update_requester_sensitive_tools(db, requester["id"], requester["role"], body.tools)
 
     return {
         "message" : "Settings updated",
@@ -309,20 +273,20 @@ async def update_hitl_settings(db : db_dependency, body : UpdateSettingsRequest,
     }
 
 @router.get("/settings/hitl")
-async def get_hitl_settings(db : db_dependency, user : dict = Depends(get_current_user)):
-    tools = get_user_sensitive_tools(db, user["id"], user["role"])
+async def get_hitl_settings(db : db_dependency, requester : requester_dependency):
+    tools = get_requester_sensitive_tools(db, requester["id"], requester["role"])
     return {"sensitive_tools": tools}
 
 
 @router.get("/tools")
-async def get_available_tools(user: dict = Depends(get_current_user)):
+async def get_available_tools(requester : requester_dependency):
 
-    role = user["role"]
+    role = requester["role"]
 
     # Import here to avoid circular imports
     from AI.tools.admin_tools import admin_tools # type:ignore
     from AI.tools.doctor_tools import doctor_tools # type:ignore 
-    from AI.tools.user_tools import user_tools # type:ignore
+    from AI.tools.requester_tools import requester_tools # type:ignore
     from AI.tools.default_tools import default_tools # type:ignore
     from AI.local_mcp.mcp_manager import get_mcp_tools 
     from AI.graph import search_documents # type:ignore
@@ -333,8 +297,8 @@ async def get_available_tools(user: dict = Depends(get_current_user)):
         tools.extend(admin_tools)
     elif role == "host":
         tools.extend(doctor_tools)
-    elif role == "user":
-        tools.extend(user_tools)
+    elif role == "requester":
+        tools.extend(requester_tools)
 
     tools.extend(default_tools)
     tools.extend(mcp_tools)
@@ -356,6 +320,9 @@ async def get_available_tools(user: dict = Depends(get_current_user)):
             })
 
         except Exception as e:
-            print(f"⚠️ Skipping tool due to error: {e}")
+            logger.info("="*50)
+            logger.info(f"Error processing tool: {t}")
+            logger.info(f"Skipping tool due to error : {e}")
+            logger.info("="*50)
             continue
     return {"tools": tool_list}

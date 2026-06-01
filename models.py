@@ -44,7 +44,7 @@ class Doctors(Base):
     hospital_id = Column(Integer, ForeignKey("hospitals.id"), nullable = False)
     availability = Column(Boolean, default = True)
     hashed_password = Column(String(200), nullable = False)
-    specialty = Column(String(100), nullable = False, default = "General")
+    speciality = Column(String(100), nullable = False, default = "General")
     fees = Column(Integer, nullable = False, default = 0)
     appointment_fees = Column(Integer, nullable = False, default = 0)
     current_cases = Column(Integer, nullable = False, default = 0)

@@ -8,7 +8,7 @@ DEFAULT_SENSITIVE_TOOLS = [
     "top_up_wallet"
 ]
 
-def get_user_sensitive_tools(db : Session, user_id : int, user_role : str):
+def get_requester_sensitive_tools(db : Session, user_id : int, user_role : str):
     settings = db.query(UserSettings).filter(UserSettings.user_id == user_id, UserSettings.user_role == user_role).first()
 
     if not settings:
@@ -25,7 +25,7 @@ def get_user_sensitive_tools(db : Session, user_id : int, user_role : str):
     return settings.sensitive_tools
 
 
-def update_user_sensitive_tools(db: Session, user_id : int, user_role : str, tools : list):
+def update_requester_sensitive_tools(db: Session, user_id : int, user_role : str, tools : list):
     settings = db.query(UserSettings).filter(UserSettings.user_id == user_id, UserSettings.user_role == user_role).first()
     if not settings:
         # create default settings

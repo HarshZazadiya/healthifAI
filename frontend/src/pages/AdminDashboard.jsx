@@ -189,7 +189,7 @@ const AdminDashboard = () => {
 
   // Tab-specific Filter States
   const [userFilters, setUserFilters] = useState({ name: '', email: '', account_type: '', is_active: '' });
-  const [doctorFilters, setDoctorFilters] = useState({ name: '', email: '', specialty: '', rating: '', availability: '', is_active: '' });
+  const [doctorFilters, setDoctorFilters] = useState({ name: '', email: '', speciality: '', rating: '', availability: '', is_active: '' });
   const [hospitalFilters, setHospitalFilters] = useState({ name: '', email: '', city: '', state: '', zip: '', rating: '', cases: '' });
   const [caseFilters, setCaseFilters] = useState({ date: '', doctor_name: '', user_name: '', cost: '', diesease: '' });
   const [transactionFilters, setTransactionFilters] = useState({ usertype: 'all', date: '', amount: '' });
@@ -214,7 +214,7 @@ const AdminDashboard = () => {
   const resetFilters = (tab) => {
     setPage(1);
     if (tab === 'users') setUserFilters({ name: '', email: '', account_type: '', is_active: '' });
-    else if (tab === 'doctors') setDoctorFilters({ name: '', email: '', specialty: '', rating: '', availability: '', is_active: '' });
+    else if (tab === 'doctors') setDoctorFilters({ name: '', email: '', speciality: '', rating: '', availability: '', is_active: '' });
     else if (tab === 'hospitals') setHospitalFilters({ name: '', email: '', city: '', state: '', zip: '', rating: '', cases: '' });
     else if (tab === 'cases') setCaseFilters({ date: '', doctor_name: '', user_name: '', cost: '', diesease: '' });
     else if (tab === 'transactions') setTransactionFilters({ usertype: 'all', date: '', amount: '' });
@@ -314,7 +314,7 @@ const AdminDashboard = () => {
               limit: 10,
               name: doctorFilters.name || undefined,
               email: doctorFilters.email || undefined,
-              specialty: doctorFilters.specialty || undefined,
+              speciality: doctorFilters.speciality || undefined,
               rating: doctorFilters.rating || undefined,
               availability: doctorFilters.availability !== '' ? doctorFilters.availability === 'true' : undefined,
               is_active: doctorFilters.is_active !== '' ? doctorFilters.is_active === 'true' : undefined
@@ -627,12 +627,12 @@ const AdminDashboard = () => {
           </div>
         </div>
         <div className="flex-1 min-w-[150px]">
-          <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Specialty</label>
+          <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Speciality</label>
           <input 
             type="text" 
-            placeholder="Specialty..." 
-            value={doctorFilters.specialty}
-            onChange={(e) => handleFilterChange('doctors', 'specialty', e.target.value)}
+            placeholder="Speciality..." 
+            value={doctorFilters.speciality}
+            onChange={(e) => handleFilterChange('doctors', 'speciality', e.target.value)}
             className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
           />
         </div>
@@ -697,7 +697,7 @@ const AdminDashboard = () => {
                   <div className="text-sm text-slate-600 mb-4 space-y-1 flex-1">
                     <p>ID: <span className="font-medium text-slate-800">{d.id}</span></p>
                     <p className="truncate">Email: {d.email}</p>
-                    <p className="text-indigo-600 font-semibold text-xs uppercase tracking-wider">{d.specialty || 'General Practice'}</p>
+                    <p className="text-indigo-600 font-semibold text-xs uppercase tracking-wider">{d.speciality || 'General Practice'}</p>
                     <p className="text-xs text-slate-400 flex items-center gap-1">Consultation: <span className="font-bold text-slate-700">₹{d.fees || 0}</span></p>
                   </div>
                 </div>
@@ -1326,7 +1326,7 @@ const AdminDashboard = () => {
                 </div>
                 <div>
                   <h3 className="text-xl font-black text-slate-800">Dr. {selectedDoctor.name}</h3>
-                  <p className="text-indigo-600 font-semibold text-xs uppercase tracking-wider">{selectedDoctor.specialty || 'General Practitioner'}</p>
+                  <p className="text-indigo-600 font-semibold text-xs uppercase tracking-wider">{selectedDoctor.speciality || 'General Practitioner'}</p>
                 </div>
               </div>
             </div>
@@ -1515,7 +1515,7 @@ const AdminDashboard = () => {
                 <h4 className="font-bold text-indigo-600 text-xs uppercase tracking-wider">Doctor Details</h4>
                 <p className="font-bold text-slate-800">Dr. {selectedCase.doctor?.name || 'N/A'}</p>
                 <p className="text-xs text-slate-500">ID: {selectedCase.doctor?.id || 'N/A'}</p>
-                <p className="text-xs text-slate-500">{selectedCase.doctor?.specialty || ''}</p>
+                <p className="text-xs text-slate-500">{selectedCase.doctor?.speciality || ''}</p>
                 <p className="text-xs text-slate-500">{selectedCase.doctor?.email || ''}</p>
               </div>
             </div>
@@ -1545,11 +1545,21 @@ const AdminDashboard = () => {
                 <h4 className="font-bold text-slate-800 text-sm mb-2">Reported Symptoms</h4>
                 <div className="flex flex-wrap gap-2">
                   {selectedCase.symptoms.map(s => {
-                    const isHigh = s.severity?.toLowerCase() === 'high';
-                    const isMed = s.severity?.toLowerCase() === 'medium';
+                    let sev = '';
+                    if (s && s.severity !== undefined && s.severity !== null) {
+                      if (typeof s.severity === 'string') sev = s.severity.toLowerCase();
+                      else if (typeof s.severity === 'number') {
+                        // categorize numeric severity into low/medium/high
+                        sev = s.severity >= 7 ? 'high' : s.severity >= 4 ? 'medium' : 'low';
+                      } else {
+                        sev = String(s.severity).toLowerCase();
+                      }
+                    }
+                    const isHigh = sev === 'high';
+                    const isMed = sev === 'medium';
                     return (
                       <span key={s.id} className={`px-2.5 py-1 text-xs font-semibold rounded-full border ${isHigh ? 'bg-rose-100 text-rose-700 border-rose-200' : isMed ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
-                        {s.symptom} ({s.severity})
+                        {s.symptom} ({typeof s.severity === 'number' ? `${s.severity}` : s.severity})
                       </span>
                     );
                   })}
