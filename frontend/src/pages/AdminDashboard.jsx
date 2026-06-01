@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import Chatbot from '../components/Chatbot';
 import api from '../services/api';
 import NotificationBell from '../components/NotificationBell';
 import MapComponent from '../components/MapComponent';
@@ -1665,6 +1666,7 @@ const AdminDashboard = () => {
           </div>
         </main>
       </div>
+      <Chatbot />
     </div>
   );
 };

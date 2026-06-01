@@ -199,228 +199,228 @@ def read_file(filename: str) -> str:
     except Exception as e:
         return f"❌ Error reading file: {e}"
 
-@mcp.tool()
-def create_pdf(filename: str, content: str) -> str:
-    """
-    Creates a PDF file with the given content inside the WORKSPACE directory.
+# @mcp.tool()
+# def create_pdf(filename: str, content: str) -> str:
+#     """
+#     Creates a PDF file with the given content inside the WORKSPACE directory.
 
-    Args:
-        filename: Name of the PDF file (with or without .pdf extension)
-        content: Text content to write into the PDF
+#     Args:
+#         filename: Name of the PDF file (with or without .pdf extension)
+#         content: Text content to write into the PDF
 
-    Returns:
-        Full path to the created PDF file
-    """
-    if not filename.endswith(".pdf"):
-        filename += ".pdf"
+#     Returns:
+#         Full path to the created PDF file
+#     """
+#     if not filename.endswith(".pdf"):
+#         filename += ".pdf"
 
-    output_path = os.path.join(WORKSPACE, filename)
+#     output_path = os.path.join(WORKSPACE, filename)
 
-    doc = SimpleDocTemplate(output_path, pagesize=letter)
-    styles = getSampleStyleSheet()
-    story = []
+#     doc = SimpleDocTemplate(output_path, pagesize=letter)
+#     styles = getSampleStyleSheet()
+#     story = []
 
-    for line in content.split("\n"):
-        if line.strip():
-            story.append(Paragraph(line, styles["Normal"]))
-        else:
-            story.append(Spacer(1, 12))
+#     for line in content.split("\n"):
+#         if line.strip():
+#             story.append(Paragraph(line, styles["Normal"]))
+#         else:
+#             story.append(Spacer(1, 12))
 
-    doc.build(story)
-    return output_path
+#     doc.build(story)
+#     return output_path
       
-@mcp.tool()
-def create_file(filename: str, content: str) -> str:
-    """Create a normal file with the given"""
+# @mcp.tool()
+# def create_file(filename: str, content: str) -> str:
+#     """Create a normal file with the given"""
     
-    filepath = WORKSPACE / filename
-    filepath.write_text(content, encoding='utf-8')
+#     filepath = WORKSPACE / filename
+#     filepath.write_text(content, encoding='utf-8')
     
-    return f"""✅ TEXT FILE CREATED: {filename}
-                📁 Location: {filepath}
-                📊 Size: {len(content)} bytes
-                📝 Content: {content[:200]}
-            """
+#     return f"""✅ TEXT FILE CREATED: {filename}
+#                 📁 Location: {filepath}
+#                 📊 Size: {len(content)} bytes
+#                 📝 Content: {content[:200]}
+#             """
 
-@mcp.tool()
-def update_pdf(filename: str, new_content: str, mode: str = "append") -> str:
-    """
-    Updates an existing PDF file in the WORKSPACE directory.
+# @mcp.tool()
+# def update_pdf(filename: str, new_content: str, mode: str = "append") -> str:
+#     """
+#     Updates an existing PDF file in the WORKSPACE directory.
 
-    Args:
-        filename: Name of the PDF file to update (with or without .pdf extension)
-        new_content: Text content to add or use as replacement
-        mode: How to update the PDF:
-              "append"  - Add new_content after existing content (default)
-              "prepend" - Add new_content before existing content
-              "replace" - Overwrite the entire PDF with new_content
+#     Args:
+#         filename: Name of the PDF file to update (with or without .pdf extension)
+#         new_content: Text content to add or use as replacement
+#         mode: How to update the PDF:
+#               "append"  - Add new_content after existing content (default)
+#               "prepend" - Add new_content before existing content
+#               "replace" - Overwrite the entire PDF with new_content
 
-    Returns:
-        Full path to the updated PDF file
-    """
-    import os
-    from pypdf import PdfReader
-    from reportlab.lib.pagesizes import letter
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-    from reportlab.lib.styles import getSampleStyleSheet
+#     Returns:
+#         Full path to the updated PDF file
+#     """
+#     import os
+#     from pypdf import PdfReader
+#     from reportlab.lib.pagesizes import letter
+#     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+#     from reportlab.lib.styles import getSampleStyleSheet
 
-    if not filename.endswith(".pdf"):
-        filename += ".pdf"
+#     if not filename.endswith(".pdf"):
+#         filename += ".pdf"
 
-    output_path = os.path.join(WORKSPACE, filename)
+#     output_path = os.path.join(WORKSPACE, filename)
 
-    if not os.path.exists(output_path):
-        raise FileNotFoundError(f"PDF not found: {output_path}")
+#     if not os.path.exists(output_path):
+#         raise FileNotFoundError(f"PDF not found: {output_path}")
 
-    styles = getSampleStyleSheet()
-    story = []
+#     styles = getSampleStyleSheet()
+#     story = []
 
-    def content_to_story(text: str) -> list:
-        """Convert plain text into ReportLab flowables."""
-        flowables = []
-        for line in text.split("\n"):
-            if line.strip():
-                flowables.append(Paragraph(line, styles["Normal"]))
-            else:
-                flowables.append(Spacer(1, 12))
-        return flowables
+#     def content_to_story(text: str) -> list:
+#         """Convert plain text into ReportLab flowables."""
+#         flowables = []
+#         for line in text.split("\n"):
+#             if line.strip():
+#                 flowables.append(Paragraph(line, styles["Normal"]))
+#             else:
+#                 flowables.append(Spacer(1, 12))
+#         return flowables
 
-    if mode == "replace":
-        # Rebuild the PDF entirely with new_content
-        story = content_to_story(new_content)
+#     if mode == "replace":
+#         # Rebuild the PDF entirely with new_content
+#         story = content_to_story(new_content)
 
-    else:
-        # Extract existing text from the current PDF
-        reader = PdfReader(output_path)
-        existing_text = "\n".join(
-            page.extract_text() or "" for page in reader.pages
-        )
+#     else:
+#         # Extract existing text from the current PDF
+#         reader = PdfReader(output_path)
+#         existing_text = "\n".join(
+#             page.extract_text() or "" for page in reader.pages
+#         )
 
-        if mode == "append":
-            combined = existing_text + "\n\n" + new_content
-        elif mode == "prepend":
-            combined = new_content + "\n\n" + existing_text
-        else:
-            raise ValueError(f"Invalid mode '{mode}'. Use 'append', 'prepend', or 'replace'.")
+#         if mode == "append":
+#             combined = existing_text + "\n\n" + new_content
+#         elif mode == "prepend":
+#             combined = new_content + "\n\n" + existing_text
+#         else:
+#             raise ValueError(f"Invalid mode '{mode}'. Use 'append', 'prepend', or 'replace'.")
 
-        story = content_to_story(combined)
+#         story = content_to_story(combined)
 
-    # Write the updated PDF back to the same path
-    doc = SimpleDocTemplate(output_path, pagesize=letter)
-    doc.build(story)
+#     # Write the updated PDF back to the same path
+#     doc = SimpleDocTemplate(output_path, pagesize=letter)
+#     doc.build(story)
 
-    return f"❌ Failed to update PDF file: {output_path}"
+#     return f"❌ Failed to update PDF file: {output_path}"
 
-@mcp.tool()
-def update_file(filename: str, content: str, is_base64: bool = False) -> str:
-    """Overwrite an existing file."""
-    try:
-        path = WORKSPACE / filename
+# @mcp.tool()
+# def update_file(filename: str, content: str, is_base64: bool = False) -> str:
+#     """Overwrite an existing file."""
+#     try:
+#         path = WORKSPACE / filename
         
-        if not str(path.resolve()).startswith(str(WORKSPACE.resolve())):
-            return "❌ Error: Access denied - file outside workspace"
+#         if not str(path.resolve()).startswith(str(WORKSPACE.resolve())):
+#             return "❌ Error: Access denied - file outside workspace"
         
-        if not path.exists():
-            return f"❌ Error: File '{filename}' not found"
+#         if not path.exists():
+#             return f"❌ Error: File '{filename}' not found"
         
-        # Handle boolean properly
-        should_decode = is_base64
-        if isinstance(should_decode, str):
-            should_decode = should_decode.lower() == "true"
+#         # Handle boolean properly
+#         should_decode = is_base64
+#         if isinstance(should_decode, str):
+#             should_decode = should_decode.lower() == "true"
         
-        if should_decode or is_base64_encoded(content):
-            try:
-                decoded = base64.b64decode(content)
-                path.write_bytes(decoded)
-                return f"✅ File updated: {filename}\nNew size: {len(decoded)} bytes"
-            except Exception as e:
-                return f"❌ Failed to decode base64: {e}"
-        else:
-            if not isinstance(content, str):
-                content = str(content)
-            path.write_text(content, encoding="utf-8")
-            return f"✅ File updated: {filename}\nNew size: {len(content)} characters"
+#         if should_decode or is_base64_encoded(content):
+#             try:
+#                 decoded = base64.b64decode(content)
+#                 path.write_bytes(decoded)
+#                 return f"✅ File updated: {filename}\nNew size: {len(decoded)} bytes"
+#             except Exception as e:
+#                 return f"❌ Failed to decode base64: {e}"
+#         else:
+#             if not isinstance(content, str):
+#                 content = str(content)
+#             path.write_text(content, encoding="utf-8")
+#             return f"✅ File updated: {filename}\nNew size: {len(content)} characters"
             
-    except Exception as e:
-        return f"❌ Error updating file: {e}"
+#     except Exception as e:
+#         return f"❌ Error updating file: {e}"
 
-@mcp.tool()
-def delete_file(filename: str) -> str:
-    """Delete a file from the workspace."""
-    try:
-        path = WORKSPACE / filename
+# @mcp.tool()
+# def delete_file(filename: str) -> str:
+#     """Delete a file from the workspace."""
+#     try:
+#         path = WORKSPACE / filename
         
-        if not str(path.resolve()).startswith(str(WORKSPACE.resolve())):
-            return "❌ Error: Access denied - file outside workspace"
+#         if not str(path.resolve()).startswith(str(WORKSPACE.resolve())):
+#             return "❌ Error: Access denied - file outside workspace"
         
-        if not path.exists():
-            return f"❌ Error: File '{filename}' not found"
+#         if not path.exists():
+#             return f"❌ Error: File '{filename}' not found"
         
-        if path.is_file():
-            path.unlink()
-            return f"✅ File deleted: {filename}"
-        else:
-            return f"❌ Error: '{filename}' is a directory, not a file"
+#         if path.is_file():
+#             path.unlink()
+#             return f"✅ File deleted: {filename}"
+#         else:
+#             return f"❌ Error: '{filename}' is a directory, not a file"
     
-    except Exception as e:
-        return f"❌ Error deleting file: {e}"
+#     except Exception as e:
+#         return f"❌ Error deleting file: {e}"
 
-@mcp.tool()
-def file_info(filename: str) -> str:
-    """Get detailed information about a file."""
-    try:
-        path = WORKSPACE / filename
+# @mcp.tool()
+# def file_info(filename: str) -> str:
+#     """Get detailed information about a file."""
+#     try:
+#         path = WORKSPACE / filename
         
-        if not str(path.resolve()).startswith(str(WORKSPACE.resolve())):
-            return "❌ Error: Access denied - file outside workspace"
+#         if not str(path.resolve()).startswith(str(WORKSPACE.resolve())):
+#             return "❌ Error: Access denied - file outside workspace"
         
-        if not path.exists():
-            return f"❌ Error: File '{filename}' not found"
+#         if not path.exists():
+#             return f"❌ Error: File '{filename}' not found"
         
-        stat = path.stat()
+#         stat = path.stat()
         
-        result = f"📄 File Information: {filename}\n"
-        result += "=" * 40 + "\n"
-        result += f"📁 Location: {path.relative_to(WORKSPACE)}\n"
-        result += f"📊 Size: {stat.st_size:,} bytes"
+#         result = f"📄 File Information: {filename}\n"
+#         result += "=" * 40 + "\n"
+#         result += f"📁 Location: {path.relative_to(WORKSPACE)}\n"
+#         result += f"📊 Size: {stat.st_size:,} bytes"
         
-        if stat.st_size < 1024:
-            pass
-        elif stat.st_size < 1024 * 1024:
-            result += f" ({stat.st_size/1024:.1f} KB)"
-        else:
-            result += f" ({stat.st_size/(1024*1024):.1f} MB)"
-        result += "\n"
+#         if stat.st_size < 1024:
+#             pass
+#         elif stat.st_size < 1024 * 1024:
+#             result += f" ({stat.st_size/1024:.1f} KB)"
+#         else:
+#             result += f" ({stat.st_size/(1024*1024):.1f} MB)"
+#         result += "\n"
         
-        result += f"📅 Created: {datetime.fromtimestamp(stat.st_ctime).strftime('%Y-%m-%d %H:%M:%S')}\n"
-        result += f"🔄 Modified: {datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')}\n"
-        result += f"📌 Type: {'Directory' if path.is_dir() else 'File'}\n"
+#         result += f"📅 Created: {datetime.fromtimestamp(stat.st_ctime).strftime('%Y-%m-%d %H:%M:%S')}\n"
+#         result += f"🔄 Modified: {datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')}\n"
+#         result += f"📌 Type: {'Directory' if path.is_dir() else 'File'}\n"
         
-        if path.is_file():
-            ext = path.suffix.lower()
-            result += f"🔤 Extension: {ext if ext else 'No extension'}\n"
+#         if path.is_file():
+#             ext = path.suffix.lower()
+#             result += f"🔤 Extension: {ext if ext else 'No extension'}\n"
             
-            if ext == '.pdf':
-                try:
-                    pdf_reader = PdfReader(path)
-                    result += f"📖 Pages: {len(pdf_reader.pages)}\n"
-                except:
-                    pass
+#             if ext == '.pdf':
+#                 try:
+#                     pdf_reader = PdfReader(path)
+#                     result += f"📖 Pages: {len(pdf_reader.pages)}\n"
+#                 except:
+#                     pass
             
-            if not is_binary(filename):
-                try:
-                    with open(path, 'r', encoding='utf-8') as f:
-                        preview = f.read(500)
-                    result += f"\n📝 Preview (first 500 chars):\n{preview}"
-                    if len(preview) == 500:
-                        result += "..."
-                except:
-                    pass
+#             if not is_binary(filename):
+#                 try:
+#                     with open(path, 'r', encoding='utf-8') as f:
+#                         preview = f.read(500)
+#                     result += f"\n📝 Preview (first 500 chars):\n{preview}"
+#                     if len(preview) == 500:
+#                         result += "..."
+#                 except:
+#                     pass
         
-        return result
+#         return result
         
-    except Exception as e:
-        return f"❌ Error getting file info: {e}"
+#     except Exception as e:
+#         return f"❌ Error getting file info: {e}"
 
 if __name__ == "__main__":
     print("🚀 File System MCP Server Starting...")

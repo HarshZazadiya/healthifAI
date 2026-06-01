@@ -9,6 +9,7 @@ import DoctorDashboard from './pages/DoctorDashboard';
 import HospitalDashboard from './pages/HospitalDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import OAuthSuccess from './pages/OAuthSuccess';
+import ChatbotSettings from './pages/ChatbotSettings';
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
           <Route path="/doctor" element={<ProtectedRoute allowedRoles={['doctor']}><DoctorDashboard /></ProtectedRoute>} />
           <Route path="/hospital" element={<ProtectedRoute allowedRoles={['hospital']}><HospitalDashboard /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute allowedRoles={['admin']}><AdminDashboard /></ProtectedRoute>} />
+          <Route path="/chatbot-settings" element={<ProtectedRoute allowedRoles={['user', 'doctor', 'hospital', 'admin']}><ChatbotSettings /></ProtectedRoute>} />
           <Route path="/" element={<Landing />} />
         </Routes>
       </AuthProvider>

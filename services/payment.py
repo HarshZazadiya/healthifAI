@@ -167,10 +167,10 @@ async def handle_payment(
             try:
                 await redis_client.delete(f"wallet : {reciever_role} : {reciever_id}")
                 await redis_client.delete(f"wallet : {sender_role} : {sender_id}")
-                logger.info(f"✅ Redis cache cleared for {reciever_role} : {reciever_id}")
-                logger.info(f"✅ Redis cache cleared for {sender_role} : {sender_id}")
+                logger.info(f"Redis cache cleared for {reciever_role} : {reciever_id}")
+                logger.info(f"Redis cache cleared for {sender_role} : {sender_id}")
             except Exception as e:
-                logger.info(f"⚠️ Redis cache clear failed (non-critical) : {e}")
+                logger.info(f"Redis cache clear failed (non-critical) : {e}")
 
         return {
             "status" : "success",

@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import Chatbot from '../components/Chatbot';
+import ChatbotSettings from './ChatbotSettings';
 import api from '../services/api';
 import NotificationBell from '../components/NotificationBell';
 import MapComponent from '../components/MapComponent';
@@ -2597,6 +2599,7 @@ const UserDashboard = () => {
     { id: 'location', name: 'Location', icon: MapIcon },
     { id: 'chat', name: 'Chat', icon: MessageCircle },
     { id: 'profile', name: 'Profile', icon: User },
+    { id: 'chatbot-settings', name: 'Chatbot Settings', icon: Lock },
   ];
 
   return (
@@ -2683,6 +2686,7 @@ const UserDashboard = () => {
             {activeTab === 'policies' && renderPolicies()}
             {activeTab === 'location' && renderLocation()}
             {activeTab === 'chat' && renderChat()}
+            {activeTab === 'chatbot-settings' && <ChatbotSettings inline={true} onBack={() => setActiveTab('overview')} />}
           </div>
         </main>
       </div>
@@ -2738,6 +2742,7 @@ const UserDashboard = () => {
           onClose={() => setDocumentViewer({ isOpen: false, url: '', filename: '' })}
         />
       )}
+      <Chatbot onOpenSettings={() => setActiveTab('chatbot-settings')} />
     </div>
   );
 };

@@ -115,9 +115,9 @@ async def ask_chat(db : db_dependency, request : ChatRequest, requester : reques
         thread = get_or_create_thread(requester, request.thread_id)
 
         logger.info(f"\n{'='*60}")
-        logger.info(f"  Processing message from {requester['name']} ({requester['role']})")
-        logger.info(f"  Thread : {thread.id}")
-        logger.info(f"  Message : {request.message}")
+        logger.info(f" Processing message from {requester['name']} ({requester['role']})")
+        logger.info(f" Thread : {thread.id}")
+        logger.info(f" Message : {request.message}")
         if request.human_approval:
             logger.info(f" Human approval : {request.human_approval}")
         logger.info(f"{'='*60}")
@@ -138,8 +138,8 @@ async def ask_chat(db : db_dependency, request : ChatRequest, requester : reques
             save_message(db, thread.id, "requester", f"[Approval : {request.human_approval}] {request.message}")
 
             result = await run_agent(
-                requester_input = request.message,
-                requester_info = requester_info,
+                user_input = request.message,
+                user_info = requester_info,
                 thread_id = thread.id,
                 human_approval = approval,
             )
@@ -286,22 +286,25 @@ async def get_available_tools(requester : requester_dependency):
     # Import here to avoid circular imports
     from AI.tools.admin_tools import admin_tools # type:ignore
     from AI.tools.doctor_tools import doctor_tools # type:ignore 
-    from AI.tools.requester_tools import requester_tools # type:ignore
+    from AI.tools.hospital_tools import hospital_tools # type:ignore
+    from AI.tools.user_tools import user_tools # type:ignore
     from AI.tools.default_tools import default_tools # type:ignore
     from AI.local_mcp.mcp_manager import get_mcp_tools 
-    from AI.graph import search_documents # type:ignore
 
-    tools = [search_documents]
+    tools = []
     mcp_tools = await get_mcp_tools()
     if role == "admin":
         tools.extend(admin_tools)
-    elif role == "host":
+    elif role == "doctor":
         tools.extend(doctor_tools)
-    elif role == "requester":
-        tools.extend(requester_tools)
+    elif role == "hospital":
+        tools.extend(hospital_tools)
+    elif role == "user":
+        tools.extend(user_tools)
 
     tools.extend(default_tools)
-    tools.extend(mcp_tools)
+    if mcp_tools:
+        tools.extend(mcp_tools)
     # Format response
     tool_list = []
 

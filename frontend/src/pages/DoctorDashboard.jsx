@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import Chatbot from '../components/Chatbot';
+import ChatbotSettings from './ChatbotSettings';
 import api from '../services/api';
 import NotificationBell from '../components/NotificationBell';
 import DocumentUploader from '../components/DocumentUploader';
@@ -1657,6 +1659,7 @@ const DoctorDashboard = () => {
     { id: 'wallet', name: 'Wallet & Transactions', icon: Wallet },
     { id: 'chat', name: 'Chat', icon: MessageCircle },
     { id: 'profile', name: 'Profile', icon: User },
+    { id: 'chatbot-settings', name: 'Chatbot Settings', icon: Lock },
   ];
 
   return (
@@ -1713,6 +1716,7 @@ const DoctorDashboard = () => {
             {activeTab === 'documents' && renderDocuments()}
             {activeTab === 'policy' && renderPolicy()}
             {activeTab === 'chat' && renderChat()}
+            {activeTab === 'chatbot-settings' && <ChatbotSettings inline={true} onBack={() => setActiveTab('overview')} />}
           </div>
         </main>
       </div>
@@ -1862,6 +1866,7 @@ const DoctorDashboard = () => {
           </div>
         </div>
       )}
+      <Chatbot onOpenSettings={() => setActiveTab('chatbot-settings')} />
     </div>
   );
 };

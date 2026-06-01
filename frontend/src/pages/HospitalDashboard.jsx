@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import Chatbot from '../components/Chatbot';
 import api from '../services/api';
 import NotificationBell from '../components/NotificationBell';
 import DocumentUploader from '../components/DocumentUploader';
@@ -1908,6 +1909,7 @@ const HospitalDashboard = () => {
           onClose={() => setDocumentViewer({ isOpen: false, url: '', filename: '' })}
         />
       )}
+      <Chatbot />
     </div>
   );
 };
