@@ -1,21 +1,24 @@
 import os
-from fastapi.responses import FileResponse
+import json
+from fastapi import Header
 from jose import jwt, JWTError
 from pydantic import BaseModel
+from logs.logging import logger
 from fastapi import BackgroundTasks
-from typing import Annotated, List, Optional
 from passlib.context import CryptContext
-from fastapi.security import OAuth2PasswordBearer
-from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
+from fastapi.responses import FileResponse
+from utils.redis_config import redis_client
+from typing import Annotated, List, Optional
 from services.profile import change_password
 from services.wallet import my_wallet, top_up
-from services.notification import create_notification, delete_all_notification, delete_notifications, my_notfications, mark_notifications_as_read
-from services.document_handling import add_document, remove_document, get_document
-from utils.redis_config import redis_client
-from utils.dependencies import requester_dependency, db_dependency, admin_dependency
-from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from fastapi.security import OAuth2PasswordBearer
 from utils.signed_url_generator import verify_signed_url
-from logs.logging import logger
+from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from services.document_handling import add_document, remove_document, get_document
+from utils.dependencies import requester_dependency, db_dependency, admin_dependency
+from services.payment import verify_payment, handle_webhook, verify_webhook_signature
+from services.notification import create_notification, delete_all_notification, delete_notifications, my_notfications, mark_notifications_as_read
 
 router = APIRouter(
     prefix = "/default", 
@@ -30,7 +33,8 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES")
 
-SECRET_SIGN_KEY_FOR_URL = os.getenv("SECRET_SIGN_KEY_FOR_URL", "your-super-secret-key-change-in-production")
+SECRET_SIGN_KEY_FOR_URL = os.getenv("SECRET_SIGN_KEY_FOR_URL")
+
 serializer = URLSafeTimedSerializer(SECRET_SIGN_KEY_FOR_URL)
 
 oauth2_bearer = OAuth2PasswordBearer(tokenUrl = "/auth/token")
@@ -89,7 +93,7 @@ async def top_up_wallet(db: db_dependency, payment_request: PaymentRequest, requ
         raise HTTPException(status_code = 401, detail = "Invalid token")
 
     try:
-        result = await top_up(db, payment_request.amount, owner_id, owner_role, owner_type)
+        result = await top_up(payment_request.amount, owner_id, owner_role, owner_type)
     except Exception as e:
         logger.exception("Unexpected error during top-up")
         raise HTTPException(status_code = 400, detail = str(e))
@@ -133,6 +137,56 @@ async def get_my_wallet(db : db_dependency, token : Annotated[str, Depends(oauth
             logger.info(f"Redis cache set failed (non-critical) : {e}")
             
     return result
+
+# =====================================================================================
+# PAYMENT VERIFICATION
+# =====================================================================================
+
+class PaymentVerificationRequest(BaseModel):
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+@router.post("/payment/verify", status_code=200)
+async def verify_payment_endpoint(verification_request: PaymentVerificationRequest):
+    """
+    Verify payment after Razorpay redirects user back.
+    Call this endpoint from frontend after successful payment.
+    """
+    try:
+        result = await verify_payment(
+            verification_request.razorpay_order_id,
+            verification_request.razorpay_payment_id,
+            verification_request.razorpay_signature
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Payment verification failed: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/payment/webhook", status_code=200)
+async def payment_webhook(request_body: bytes, x_razorpay_signature: str = Header(...)):
+    """
+    Handle Razorpay webhook events.
+    Supports payment.authorized and payment.failed events.
+    Verifies webhook signature using HMAC-SHA256.
+    """
+    try:
+        # Verify webhook signature
+        webhook_body = request_body.decode('utf-8')
+        if not verify_webhook_signature(webhook_body, x_razorpay_signature):
+            logger.warning("Invalid webhook signature")
+            raise HTTPException(status_code=401, detail="Invalid webhook signature")
+        
+        # Parse webhook event data
+        event_data = json.loads(webhook_body)
+        result = await handle_webhook(event_data)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Webhook handling failed: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
 
 # =====================================================================================
 # DOCUMENTS

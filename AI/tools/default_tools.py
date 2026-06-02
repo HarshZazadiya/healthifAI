@@ -56,33 +56,33 @@ async def change_user_password(
         db.close()
 
 
-@tool
-async def top_up_wallet(
-    authenticated_user_id: int,
-    authenticated_user_type: str,
-    amount: int
-) -> dict:
-    """
-    Top up/add money to the authenticated requester's wallet balance.
+# @tool
+# async def top_up_wallet(
+#     authenticated_user_id: int,
+#     authenticated_user_type: str,
+#     amount: int
+# ) -> dict:
+#     """
+#     Top up/add money to the authenticated requester's wallet balance.
 
-    Args:
-        authenticated_user_id: The ID of the authenticated requester.
-        authenticated_user_type: The role of the requester ('user', 'doctor', 'hospital', 'admin').
-        amount: Positive integer amount of money to top up.
-    """
-    if amount <= 0:
-        return {"error": "Amount must be positive"}
+#     Args:
+#         authenticated_user_id: The ID of the authenticated requester.
+#         authenticated_user_type: The role of the requester ('user', 'doctor', 'hospital', 'admin').
+#         amount: Positive integer amount of money to top up.
+#     """
+#     if amount <= 0:
+#         return {"error": "Amount must be positive"}
 
-    db = SessionLocal()
-    try:
-        req_info = get_requester_info(db, authenticated_user_id, authenticated_user_type)
-        if not req_info:
-            return {"error": "Requester not found"}
-        return await top_up(amount, req_info["id"], req_info["role"], req_info["type"])
-    except Exception as e:
-        return {"error": str(e)}
-    finally:
-        db.close()
+#     db = SessionLocal()
+#     try:
+#         req_info = get_requester_info(db, authenticated_user_id, authenticated_user_type)
+#         if not req_info:
+#             return {"error": "Requester not found"}
+#         return await top_up(amount, req_info["id"], req_info["role"], req_info["type"])
+#     except Exception as e:
+#         return {"error": str(e)}
+#     finally:
+#         db.close()
 
 
 @tool
@@ -200,7 +200,7 @@ async def mark_notification_as_read(
 
 default_tools = [
     change_user_password,
-    top_up_wallet,
+    # top_up_wallet,
     get_my_wallet,
     get_documents,
     get_notifications,

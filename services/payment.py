@@ -1,23 +1,245 @@
+import os
+import hmac
+import hashlib
+import razorpay
 from decimal import Decimal
 from typing import Optional
 from logs.logging import logger
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
 from database import SessionLocal
 from utils.redis_config import redis_client
 from models import Doctors, Hospitals, Users, Wallet, UserPayments, DoctorPayments
 
-async def handle_payment(
-    sender_id : int, 
-    sender_role : str, 
-    reciever_id : int, 
-    reciever_role : str, 
-    amount : float, 
-    note : Optional[str] = None,
-    type : Optional[str] = None,
-):
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_TEST_API_KEY")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_TEST_KEY_SECRET")
+CURRENCY = os.getenv("CURRENCY")
+
+client = razorpay.Client(auth = (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+
+def verify_razorpay_signature(razorpay_order_id: str, razorpay_payment_id: str, razorpay_signature: str) -> bool:
+    """
+    Verify Razorpay payment signature for security.
+    Returns True if signature is valid, False otherwise.
+    """
+    try:
+        message = f"{razorpay_order_id}|{razorpay_payment_id}"
+        expected_signature = hmac.new(
+            RAZORPAY_KEY_SECRET.encode(),
+            message.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        return expected_signature == razorpay_signature
+    except Exception as e:
+        logger.error(f"Signature verification error: {e}")
+        return False
+
+def verify_webhook_signature(webhook_body: str, webhook_signature: str) -> bool:
+    """
+    Verify Razorpay webhook signature.
+    Returns True if signature is valid, False otherwise.
+    """
+    try:
+        expected_signature = hmac.new(
+            RAZORPAY_KEY_SECRET.encode(),
+            webhook_body.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        return expected_signature == webhook_signature
+    except Exception as e:
+        logger.error(f"Webhook signature verification error: {e}")
+        return False
+
+async def get_payment_status(payment_id: str) -> dict:
+    """
+    Get payment status from Razorpay.
+    Returns payment details if successful.
+    """
+    try:
+        payment = client.payment.fetch(payment_id)
+        return {
+            "id": payment.get("id"),
+            "amount": payment.get("amount"),
+            "status": payment.get("status"),
+            "order_id": payment.get("order_id"),
+            "captured": payment.get("captured"),
+            "notes": payment.get("notes")
+        }
+    except Exception as e:
+        logger.error(f"Error fetching payment status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch payment status: {e}")
+
+async def verify_payment(order_id: str, payment_id: str, signature: str) -> dict:
+    """
+    Verify payment after Razorpay redirects user back.
+    Updates wallet only after successful verification.
+    """
     db = SessionLocal()
+    try:
+        # Verify signature
+        if not verify_razorpay_signature(order_id, payment_id, signature):
+            logger.warning(f"Invalid signature for order {order_id}")
+            raise HTTPException(status_code=400, detail="Invalid payment signature")
+        
+        # Get payment status from Razorpay
+        payment_status = await get_payment_status(payment_id)
+        
+        if payment_status["status"] != "captured":
+            logger.warning(f"Payment not captured for order {order_id}")
+            raise HTTPException(status_code=400, detail="Payment not captured")
+        
+        # Find the payment record
+        user_payment = db.query(UserPayments).filter(UserPayments.razorpay_order_id == order_id).first()
+        doctor_payment = db.query(DoctorPayments).filter(DoctorPayments.razorpay_order_id == order_id).first()
+        
+        payment_record = user_payment or doctor_payment
+        
+        if not payment_record:
+            logger.warning(f"No payment record found for order {order_id}")
+            raise HTTPException(status_code=404, detail="Payment record not found")
+        
+        # Update payment record with Razorpay IDs
+        payment_record.razorpay_payment_id = payment_id
+        payment_record.razorpay_signature = signature
+        payment_record.payment_status = "completed"
+        
+        # Update wallet balance
+        if isinstance(payment_record, UserPayments):
+            wallet = db.query(Wallet).filter(
+                Wallet.user_id == payment_record.user_id,
+                Wallet.role == "user"
+            ).first()
+        else:
+            wallet = db.query(Wallet).filter(
+                Wallet.user_id == payment_record.doctor_id,
+                Wallet.role == "doctor"
+            ).first()
+        
+        if not wallet:
+            raise HTTPException(status_code=404, detail="Wallet not found")
+        
+        # Add amount to wallet
+        wallet.balance += Decimal(str(payment_record.amount))
+        db.commit()
+        
+        logger.info(f"Payment verified and wallet updated for order {order_id}")
+        
+        # Clear Redis cache
+        if redis_client:
+            try:
+                if isinstance(payment_record, UserPayments):
+                    await redis_client.delete(f"wallet : user : {payment_record.user_id}")
+                else:
+                    await redis_client.delete(f"wallet : doctor : {payment_record.doctor_id}")
+            except Exception as e:
+                logger.info(f"Redis cache clear failed (non-critical): {e}")
+        
+        return {
+            "status": "success",
+            "message": "Payment verified successfully",
+            "order_id": order_id,
+            "payment_id": payment_id
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Payment verification failed: {e}")
+        raise
+    finally:
+        db.close()
+
+async def handle_webhook(event_data: dict) -> dict:
+    """
+    Handle Razorpay webhook events.
+    Supports payment.authorized and payment.failed events.
+    """
+    db = SessionLocal()
+    try:
+        event = event_data.get("event")
+        payload = event_data.get("payload", {})
+        payment = payload.get("payment", {})
+        order = payload.get("order", {})
+        
+        payment_id = payment.get("entity", {}).get("id")
+        order_id = order.get("entity", {}).get("id")
+        
+        logger.info(f"Processing webhook event: {event} for order: {order_id}")
+        
+        if event == "payment.authorized":
+            # Payment was authorized and captured
+            user_payment = db.query(UserPayments).filter(UserPayments.razorpay_order_id == order_id).first()
+            doctor_payment = db.query(DoctorPayments).filter(DoctorPayments.razorpay_order_id == order_id).first()
+            
+            payment_record = user_payment or doctor_payment
+            
+            if payment_record:
+                payment_record.razorpay_payment_id = payment_id
+                payment_record.payment_status = "completed"
+                
+                # Update wallet
+                if isinstance(payment_record, UserPayments):
+                    wallet = db.query(Wallet).filter(
+                        Wallet.user_id == payment_record.user_id,
+                        Wallet.role == "user"
+                    ).first()
+                else:
+                    wallet = db.query(Wallet).filter(
+                        Wallet.user_id == payment_record.doctor_id,
+                        Wallet.role == "doctor"
+                    ).first()
+                
+                if wallet:
+                    wallet.balance += Decimal(str(payment_record.amount))
+                
+                db.commit()
+                logger.info(f"Webhook: Payment authorized and wallet updated for order {order_id}")
+            
+            return {"status": "success", "message": "Payment processed successfully"}
+        
+        elif event == "payment.failed":
+            # Payment failed
+            user_payment = db.query(UserPayments).filter(UserPayments.razorpay_order_id == order_id).first()
+            doctor_payment = db.query(DoctorPayments).filter(DoctorPayments.razorpay_order_id == order_id).first()
+            
+            payment_record = user_payment or doctor_payment
+            
+            if payment_record:
+                payment_record.payment_status = "failed"
+                db.commit()
+                logger.warning(f"Webhook: Payment failed for order {order_id}")
+            
+            return {"status": "failed", "message": "Payment failed"}
+        
+        else:
+            logger.info(f"Unhandled webhook event: {event}")
+            return {"status": "unhandled", "message": f"Event {event} not handled"}
+    
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Webhook processing error: {e}")
+        raise HTTPException(status_code=500, detail=f"Webhook processing error: {e}")
+    finally:
+        db.close()
+
+async def handle_payment(*args, **kwargs):
+    first_arg = args[0] if len(args) > 0 else None
+    if first_arg is not None and (hasattr(first_arg, "execute") or hasattr(first_arg, "query") or hasattr(first_arg, "commit")):
+        db = first_arg
+        passed_db = True
+        remaining_args = args[1:]
+    else:
+        db = SessionLocal()
+        passed_db = False
+        remaining_args = args
+
+    sender_id = remaining_args[0] if len(remaining_args) > 0 else kwargs.get("sender_id")
+    sender_role = remaining_args[1] if len(remaining_args) > 1 else kwargs.get("sender_role")
+    reciever_id = remaining_args[2] if len(remaining_args) > 2 else kwargs.get("reciever_id")
+    reciever_role = remaining_args[3] if len(remaining_args) > 3 else kwargs.get("reciever_role")
+    amount = remaining_args[4] if len(remaining_args) > 4 else kwargs.get("amount")
+    note = remaining_args[5] if len(remaining_args) > 5 else kwargs.get("note")
+    type = remaining_args[6] if len(remaining_args) > 6 else kwargs.get("type")
+
     try :
+        amount = float(amount)
         if sender_role.lower() not in ["user", "doctor", "hospital", "admin"] or reciever_role.lower() not in ["user", "doctor", "hospital", "admin"]:
             raise HTTPException(status_code = 400, detail = "Invalid role")
         if sender_role == reciever_role and sender_id == reciever_id and type != "TOP-UP":
@@ -27,41 +249,61 @@ async def handle_payment(
         # top up wallet
         if type == "TOP-UP" and (sender_role == reciever_role and sender_id == reciever_id):
             if sender_role == "user":
+                order = client.order.create({
+                    "amount" : int(amount * 100),
+                    "currency" : CURRENCY,
+                    "payment_capture" : 1
+                })
                 payment = UserPayments(
                     user_id = sender_id,
                     amount = amount,
                     role = sender_role,
                     type = type,
-                    note = note
+                    note = note,
+                    razorpay_order_id = order.get("id"),
+                    payment_status = "pending"
                 )
                 db.add(payment)
                 db.commit()
                 db.refresh(payment)
                 return {
+                    "order" : order,
                     "id" : payment.id,
                     "user_id" : payment.user_id,
                     "amount" : payment.amount,
                     "type" : payment.type,
                     "note" : payment.note,
-                    "message" : "Wallet topped up successfully"
+                    "razorpay_order_id" : order.get("id"),
+                    "razorpay_key_id": RAZORPAY_KEY_ID,
+                    "message" : "Order created. Proceed to payment verification."
                 }
             elif sender_role == "doctor":
+                order = client.order.create({
+                    "amount" : int(amount * 100),
+                    "currency" : CURRENCY,
+                    "payment_capture" : 1
+                })
                 payment = DoctorPayments(
                     doctor_id = sender_id,
                     amount = amount,
                     type = type,
-                    note = note
+                    note = note,
+                    razorpay_order_id = order.get("id"),
+                    payment_status = "pending"
                 )
                 db.add(payment)
                 db.commit()
                 db.refresh(payment)
                 return {
+                    "order" : order,
                     "id" : payment.id,
                     "doctor_id" : payment.doctor_id,
                     "amount" : payment.amount,
                     "type" : payment.type,
                     "note" : payment.note,
-                    "message" : "Wallet topped up successfully"
+                    "razorpay_order_id" : order.get("id"),
+                    "razorpay_key_id": RAZORPAY_KEY_ID,
+                    "message" : "Order created. Proceed to payment verification."
                 }
             else :
                 raise HTTPException(status_code = 400, detail = "Invalid role")
@@ -136,7 +378,6 @@ async def handle_payment(
                     note = f"{word} from user {user.name}"
                 )
                 db.add(reciever_payment)
-                logger.info(f"payment recieved : {reciever_payment}")
         elif sender_role == "doctor":
             sender_payment = DoctorPayments(
                 doctor_id = sender_id, 
@@ -153,7 +394,6 @@ async def handle_payment(
                     note = note if note else None
                 )
                 db.add(reciever_payment)
-                logger.info(f"payment recieved : {reciever_payment}")
         else:
             raise HTTPException(status_code = 400, detail = "Invalid role")
 
@@ -180,7 +420,8 @@ async def handle_payment(
         db.rollback()
         raise HTTPException(status_code = 500, detail = f"Payment failed : {e}")
     finally :
-        db.close()
+        if not passed_db:
+            db.close()
 
 async def handle_refund(reciver_id : int, reciver_role : str, sender_id : int, sender_role : str, amount : float, note : str = None):
     db = SessionLocal()
@@ -224,8 +465,6 @@ async def handle_refund(reciver_id : int, reciver_role : str, sender_id : int, s
         db.add(sender_payment)
         db.add(reciever_payment)
         db.commit()
-        logger.info(f"payment recieved : {reciever_payment.amount}")
-        logger.info(f"payment sent : {sender_payment.amount}")
         return {
             "status" : "success",
             "transaction_id" : reciever_payment.id

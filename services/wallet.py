@@ -70,6 +70,15 @@ async def top_up(amount: int, owner_id: int, owner_role : str, owner_type : str)
             )
             if not result:
                 raise HTTPException(status_code = 400, detail = "Payment failed")
+            
+            # For Razorpay payments, we return the order details without adding to the wallet balance yet.
+            return {
+                "id": owner_id,
+                "role": owner_type,
+                "balance": float(wallet.balance),
+                "payment_added": result,
+                "message": "Order created. Proceed to payment verification."
+            }
 
         # Then update wallet balance
         wallet.balance += amount
@@ -79,8 +88,8 @@ async def top_up(amount: int, owner_id: int, owner_role : str, owner_type : str)
         return {
             "id": owner_id,
             "role": owner_type,
-            "balance": wallet.balance,
-            "payment_added": result if result else "No payment added to transactions",
+            "balance": float(wallet.balance),
+            "payment_added": "No payment added to transactions",
             "message": "Wallet topped up successfully"
         }
     except Exception as e:

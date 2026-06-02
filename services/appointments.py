@@ -232,9 +232,10 @@ async def cancel_appointment_fc(appointment_id : int, user_id : int, user_name :
 
             asyncio.create_task(
                 create_notification(
-                message = f"user {user_name} has cancelled an appointment {appointment_id} of time {appointment.date}", 
-                recipient_id = appointment.doctor_id, 
-                recipient_role = "doctor")
+                    message = f"user {user_name} has cancelled an appointment {appointment_id} of time {appointment.date}", 
+                    recipient_id = appointment.doctor_id, 
+                    recipient_role = "doctor"
+                )
             )
 
             return {
@@ -268,9 +269,10 @@ async def cancel_appointment_fc(appointment_id : int, user_id : int, user_name :
                 for app in appointments:
                     asyncio.create_task(
                         create_notification(
-                        message = f"Appointment {app.id} of user {app.user_id} has been cancelled by doctor {user_name}", 
-                        recipient_id = app.user_id, 
-                        recipient_role = "user")
+                            message = f"Appointment {app.id} of user {app.user_id} has been cancelled by doctor {user_name}", 
+                            recipient_id = app.user_id, 
+                            recipient_role = "user"
+                        )
                     )
 
                     # remove the price from case's cost

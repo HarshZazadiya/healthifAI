@@ -196,6 +196,10 @@ class UserPayments(Base):
     note = Column(String(100), nullable = True)
     type = Column(String(100), nullable = False)
     amount = Column(Numeric(10, 2), nullable = False)
+    razorpay_order_id = Column(String(100), nullable = True)
+    razorpay_payment_id = Column(String(100), nullable = True)
+    razorpay_signature = Column(String(200), nullable = True)
+    payment_status = Column(String(50), nullable = True, default = "pending")
 
 class DoctorPayments(Base):
     __tablename__ = "doctor_payments"
@@ -206,6 +210,10 @@ class DoctorPayments(Base):
     note = Column(String(100), nullable = True)
     type = Column(String(100), nullable = False)
     amount = Column(Numeric(10, 2), nullable = False)
+    razorpay_order_id = Column(String(100), nullable = True)
+    razorpay_payment_id = Column(String(100), nullable = True)
+    razorpay_signature = Column(String(200), nullable = True)
+    payment_status = Column(String(50), nullable = True, default = "pending")
 
 class ChatThread(Base):
     __tablename__ = "chat_threads"

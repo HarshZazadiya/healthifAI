@@ -678,6 +678,20 @@ const ChatPanel = ({ user, onShowToast, onOpenDocumentViewer, assignedPatientsPr
   );
 };
 
+const loadRazorpayScript = () => {
+  return new Promise((resolve) => {
+    if (window.Razorpay) {
+      resolve(true);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+};
+
 // ============================================
 // MAIN DOCTOR DASHBOARD
 // ============================================
@@ -996,11 +1010,67 @@ const DoctorDashboard = () => {
   const handleTopUp = async () => {
     if (topUpAmount <= 0) return showToast('Enter a valid amount');
     try {
-      await api.put('/default/topUp', { amount: topUpAmount });
-      showToast('Wallet topped up successfully');
-      setTopUpAmount(0);
-      loadData();
-    } catch (err) { showToast('Top-up failed'); }
+      const scriptLoaded = await loadRazorpayScript();
+      if (!scriptLoaded) {
+        showToast('Razorpay SDK failed to load. Are you online?');
+        return;
+      }
+
+      const res = await api.put('/default/topUp', { amount: topUpAmount });
+      const paymentAdded = res.data.payment_added;
+
+      if (!paymentAdded || !paymentAdded.order) {
+        showToast('Failed to create payment order');
+        return;
+      }
+
+      const orderData = paymentAdded.order;
+      const razorpayKey = paymentAdded.razorpay_key_id;
+
+      const options = {
+        key: razorpayKey,
+        amount: orderData.amount,
+        currency: orderData.currency || 'INR',
+        name: 'HealthifAI',
+        description: 'Wallet Top Up',
+        order_id: orderData.id,
+        handler: async function (response) {
+          try {
+            const verifyRes = await api.post('/default/payment/verify', {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature
+            });
+
+            if (verifyRes.data.status === 'success') {
+              showToast('Wallet topped up successfully!');
+              setTopUpAmount(0);
+              const w = await api.get('/default/myWallet');
+              setWallet(w.data || { balance: 0 });
+              loadData();
+            } else {
+              showToast('Payment verification failed');
+            }
+          } catch (verifyErr) {
+            console.error('Verification error:', verifyErr);
+            showToast(verifyErr.response?.data?.detail || 'Payment verification failed');
+          }
+        },
+        prefill: {
+          name: profile?.name || '',
+          email: profile?.email || '',
+        },
+        theme: {
+          color: '#2563eb'
+        }
+      };
+
+      const paymentObject = new window.Razorpay(options);
+      paymentObject.open();
+    } catch (err) {
+      console.error('Top up initialization error:', err);
+      showToast(err.response?.data?.detail || 'Failed to top up wallet');
+    }
   };
 
   const updateTransactionNote = async (tId) => {
@@ -1293,7 +1363,7 @@ const DoctorDashboard = () => {
                   {c.symptoms?.length > 0 && <div className="flex flex-wrap gap-1"><span className="text-xs font-medium text-slate-500">Symptoms:</span>{c.symptoms.map(s => <span key={s.id} className="text-xs bg-slate-100 px-2 py-0.5 rounded">{s.name}</span>)}</div>}
                 </div>
                 <div className="flex gap-2 w-full md:w-auto">
-                  {c.status === 'OPEN' && <button onClick={() => closeCase(c.id)} className="px-4 py-2 bg-rose-50 text-rose-600 font-medium rounded-xl hover:bg-rose-100">Close Case</button>}
+                  {(c.status === 'OPEN' || c.status === 'REQUESTED_BY_USER') && <button onClick={() => closeCase(c.id)} className="px-4 py-2 bg-rose-50 text-rose-600 font-medium rounded-xl hover:bg-rose-100">Close Case</button>}
                   <button onClick={() => viewCaseDetails(c.id)} className="px-4 py-2 bg-slate-800 text-white font-medium rounded-xl hover:bg-slate-700">Details</button>
                 </div>
               </div>
@@ -1324,8 +1394,25 @@ const DoctorDashboard = () => {
           className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl relative cursor-default"
         >
           <div className="flex justify-between items-start p-6 border-b border-slate-200">
-            <div><h2 className="text-2xl font-bold text-slate-800">Case #{selectedCase.case_id}</h2><div className="flex flex-wrap gap-2 mt-2"><StatusBadge status={selectedCase.status} /><span className="px-3 py-1 bg-slate-100 rounded-full text-sm">Patient: {selectedCase.user_name}</span><span className="px-3 py-1 bg-slate-100 rounded-full text-sm">Opened: {new Date(selectedCase.case_opened_on).toLocaleDateString()}</span></div></div>
-            <button onClick={() => setSelectedCase(null)} className="p-2 bg-slate-100 rounded-full"><X size={20} /></button>
+            <div>
+              <h2 className="text-2xl font-bold text-slate-800">Case #{selectedCase.case_id}</h2>
+              <div className="flex flex-wrap gap-2 mt-2">
+                <StatusBadge status={selectedCase.status} />
+                <span className="px-3 py-1 bg-slate-100 rounded-full text-sm">Patient: {selectedCase.user_name}</span>
+                <span className="px-3 py-1 bg-slate-100 rounded-full text-sm">Opened: {new Date(selectedCase.case_opened_on).toLocaleDateString()}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {(selectedCase.status === 'OPEN' || selectedCase.status === 'REQUESTED_BY_USER') && (
+                <button
+                  onClick={() => { closeCase(selectedCase.id); setSelectedCase(null); }}
+                  className="px-4 py-2 bg-rose-50 text-rose-600 font-medium rounded-xl hover:bg-rose-100 transition-colors text-sm"
+                >
+                  Close Case
+                </button>
+              )}
+              <button onClick={() => setSelectedCase(null)} className="p-2 bg-slate-100 rounded-full"><X size={20} /></button>
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             <div className="grid md:grid-cols-2 gap-6">

@@ -1023,6 +1023,20 @@ const ChatPanel = ({ user, onShowToast, onOpenDocumentViewer, onSeeDoctorInfo, o
   );
 };
 
+const loadRazorpayScript = () => {
+  return new Promise((resolve) => {
+    if (window.Razorpay) {
+      resolve(true);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+};
+
 // ============================================
 // MAIN DASHBOARD
 // ============================================
@@ -1044,6 +1058,7 @@ const UserDashboard = () => {
   const [nearbyDoctors, setNearbyDoctors] = useState([]);
   const [newSymptom, setNewSymptom] = useState({ symptom: '', severity: 5 });
   const [topUpAmount, setTopUpAmount] = useState(0);
+  const [paymentModal, setPaymentModal] = useState({ isOpen: false, title: '', description: '', amount: 0, date: '', onConfirm: null });
   const [selectedCase, setSelectedCase] = useState(null);
   const [caseSymptoms, setCaseSymptoms] = useState([]);
   const [caseUserDocs, setCaseUserDocs] = useState([]);
@@ -1216,12 +1231,67 @@ const UserDashboard = () => {
   const handleTopUp = async () => {
     if (topUpAmount <= 0) return showToast('Enter a valid amount');
     try {
+      const scriptLoaded = await loadRazorpayScript();
+      if (!scriptLoaded) {
+        showToast('Razorpay SDK failed to load. Are you online?');
+        return;
+      }
+
       const res = await api.put('/default/topUp', { amount: topUpAmount });
-      showToast('Wallet topped up successfully!');
-      setTopUpAmount(0);
-      setWallet({ balance: res.data.balance });
-      loadData();
-    } catch (err) { showToast('Failed to top up wallet'); }
+      const paymentAdded = res.data.payment_added;
+
+      if (!paymentAdded || !paymentAdded.order) {
+        showToast('Failed to create payment order');
+        return;
+      }
+
+      const orderData = paymentAdded.order;
+      const razorpayKey = paymentAdded.razorpay_key_id;
+
+      const options = {
+        key: razorpayKey,
+        amount: orderData.amount,
+        currency: orderData.currency || 'INR',
+        name: 'HealthifAI',
+        description: 'Wallet Top Up',
+        order_id: orderData.id,
+        handler: async function (response) {
+          try {
+            const verifyRes = await api.post('/default/payment/verify', {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature
+            });
+
+            if (verifyRes.data.status === 'success') {
+              showToast('Wallet topped up successfully!');
+              setTopUpAmount(0);
+              const w = await api.get('/default/myWallet');
+              setWallet(w.data || { balance: 0 });
+              loadData();
+            } else {
+              showToast('Payment verification failed');
+            }
+          } catch (verifyErr) {
+            console.error('Verification error:', verifyErr);
+            showToast(verifyErr.response?.data?.detail || 'Payment verification failed');
+          }
+        },
+        prefill: {
+          name: profile?.name || '',
+          email: profile?.email || '',
+        },
+        theme: {
+          color: '#2563eb'
+        }
+      };
+
+      const paymentObject = new window.Razorpay(options);
+      paymentObject.open();
+    } catch (err) {
+      console.error('Top up initialization error:', err);
+      showToast(err.response?.data?.detail || 'Failed to top up wallet');
+    }
   };
   const updateTransactionNote = async (tId) => {
     try {
@@ -1300,13 +1370,108 @@ const UserDashboard = () => {
       loadData();
     } catch (err) { showToast('Failed to add symptom'); }
   };
-  const assignDoctor = async (doctorId) => {
+  const getDoctorDetails = (doctorId) => {
+    let found = nearbyDoctors.find(d => d.id === doctorId);
+    if (found) return found;
+    for (const h of doctors) {
+      found = (h.doctors || []).find(d => d.id === doctorId);
+      if (found) return found;
+    }
+    found = myDoctors.find(d => d.doctor_id === doctorId);
+    if (found) return { ...found, id: found.doctor_id };
+    return null;
+  };
+
+  const ensureBalanceAndExecute = async (amount, actionName, onExecute) => {
+    const currentBalance = parseFloat(wallet.balance) || 0;
+    if (currentBalance >= amount) {
+      await onExecute();
+    } else {
+      const topUpRequired = amount - currentBalance;
+      try {
+        const scriptLoaded = await loadRazorpayScript();
+        if (!scriptLoaded) {
+          showToast('Razorpay SDK failed to load. Are you online?');
+          return;
+        }
+
+        const res = await api.put('/default/topUp', { amount: topUpRequired });
+        const paymentAdded = res.data.payment_added;
+        
+        if (!paymentAdded || !paymentAdded.order) {
+          showToast('Failed to create payment order');
+          return;
+        }
+
+        const orderData = paymentAdded.order;
+        const razorpayKey = paymentAdded.razorpay_key_id;
+
+        const options = {
+          key: razorpayKey,
+          amount: orderData.amount,
+          currency: orderData.currency || 'INR',
+          name: 'SCANBO Healthcare',
+          description: `Top-up for ${actionName}`,
+          order_id: orderData.id,
+          handler: async function (response) {
+            try {
+              const verifyRes = await api.post('/default/payment/verify', {
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature
+              });
+
+              if (verifyRes.data.status === 'success') {
+                showToast('Wallet topped up successfully! Processing request...');
+                const w = await api.get('/default/myWallet');
+                setWallet(w.data || { balance: 0 });
+                await onExecute();
+              } else {
+                showToast('Payment verification failed');
+              }
+            } catch (verifyErr) {
+              console.error('Verification error:', verifyErr);
+              showToast(verifyErr.response?.data?.detail || 'Payment verification failed');
+            }
+          },
+          prefill: {
+            name: profile?.name || '',
+            email: profile?.email || '',
+          },
+          theme: {
+            color: '#2563eb'
+          }
+        };
+
+        const paymentObject = new window.Razorpay(options);
+        paymentObject.open();
+      } catch (err) {
+        console.error('Razorpay initialization error:', err);
+        showToast(err.response?.data?.detail || 'Failed to initialize payment');
+      }
+    }
+  };
+
+  const executeAssignDoctor = async (doctorId) => {
     try {
       await api.post(`/user/assign/${doctorId}`);
       showToast('Doctor assigned! New case created.');
       loadData();
     } catch (err) { showToast(err.response?.data?.detail || 'Failed to assign doctor'); }
   };
+
+  const assignDoctor = (doctorId) => {
+    const doctor = getDoctorDetails(doctorId) || { id: doctorId, name: 'Doctor', fees: 500 };
+    setPaymentModal({
+      isOpen: true,
+      title: 'Confirm Doctor Assignment',
+      description: `Assigning Dr. ${doctor.name} (${doctor.speciality || 'General'}). A new case will be opened.`,
+      amount: doctor.fees || 0,
+      date: new Date().toLocaleDateString(),
+      onConfirm: () => ensureBalanceAndExecute(doctor.fees || 0, 'Doctor Assignment', () => executeAssignDoctor(doctorId))
+    });
+  };
+
   const closeCase = async (caseId) => {
     try {
       await api.put(`/user/cases/close/${caseId}`);
@@ -1314,12 +1479,34 @@ const UserDashboard = () => {
       loadData();
     } catch (err) { showToast('Failed to close case'); }
   };
-  const reopenCase = async (caseId) => {
+
+  const executeReopenCase = async (caseId) => {
     try {
       await api.put(`/user/reopen/${caseId}`);
       showToast('Case reopened successfully');
       loadData();
     } catch (err) { showToast('Failed to reopen case'); }
+  };
+
+  const reopenCase = (caseId) => {
+    const c = cases.find(item => item.id === caseId) || (selectedCase && selectedCase.id === caseId ? selectedCase : null);
+    if (!c) {
+      showToast('Case not found');
+      return;
+    }
+    const lastUpdated = new Date(c.case_updated_on || c.case_opened_on || c.date);
+    const days = Math.floor((new Date() - lastUpdated) / (1000 * 60 * 60 * 24));
+    const baseFee = parseFloat(c.cost) || 500;
+    const amount = days < 180 ? baseFee * 0.5 : baseFee;
+
+    setPaymentModal({
+      isOpen: true,
+      title: 'Confirm Case Reopening',
+      description: `Reopening closed Case #${c.case_id} (${c.diesease || 'General'}).`,
+      amount: amount,
+      date: new Date().toLocaleDateString(),
+      onConfirm: () => ensureBalanceAndExecute(amount, 'Case Reopening', () => executeReopenCase(caseId))
+    });
   };
   const addSymptomToCase = async (caseId) => {
     if (!selectedSymptomToAdd) return;
@@ -1433,9 +1620,7 @@ const UserDashboard = () => {
       setAvailableDoctors(allDocs.filter(d => myDocsIds.includes(d.id)));
     } catch (err) { console.error(err); }
   };
-  const bookAppointment = async (e) => {
-    e.preventDefault();
-    if (!bookingDoctorId || !bookingDate) return showToast('Please select doctor and date');
+  const executeBookAppointment = async () => {
     try {
       await api.post('/user/appointment', { doctor_id: parseInt(bookingDoctorId), date: new Date(bookingDate).toISOString() });
       showToast('Appointment booked successfully!');
@@ -1444,6 +1629,21 @@ const UserDashboard = () => {
       setBookingDate('');
       loadData();
     } catch (err) { showToast('Booking failed: ' + (err.response?.data?.detail || err.message)); }
+  };
+
+  const bookAppointment = (e) => {
+    e.preventDefault();
+    if (!bookingDoctorId || !bookingDate) return showToast('Please select doctor and date');
+    const doctor = getDoctorDetails(parseInt(bookingDoctorId)) || { id: parseInt(bookingDoctorId), name: 'Doctor', appointment_fees: 300 };
+
+    setPaymentModal({
+      isOpen: true,
+      title: 'Confirm Appointment Booking',
+      description: `Booking an appointment with Dr. ${doctor.name} on ${new Date(bookingDate).toLocaleString()}`,
+      amount: doctor.appointment_fees || 0,
+      date: new Date().toLocaleDateString(),
+      onConfirm: () => ensureBalanceAndExecute(doctor.appointment_fees || 0, 'Appointment Booking', () => executeBookAppointment())
+    });
   };
   const cancelAppointment = async (appointmentId) => {
     showConfirm('Cancel Appointment', 'Cancel this appointment?', async () => {
@@ -1747,7 +1947,7 @@ const UserDashboard = () => {
                   </div>
                 </div>
                 <div className="flex gap-2 w-full md:w-auto">
-                  {c.status === 'OPEN' && <button onClick={() => closeCase(c.id)} className="flex-1 md:flex-none px-4 py-2 bg-rose-50 text-rose-600 font-medium rounded-xl hover:bg-rose-100 transition-colors">Close Case</button>}
+                  {(c.status === 'OPEN' || c.status === 'REQUESTED_BY_DOCTOR') && <button onClick={() => closeCase(c.id)} className="flex-1 md:flex-none px-4 py-2 bg-rose-50 text-rose-600 font-medium rounded-xl hover:bg-rose-100 transition-colors">Close Case</button>}
                   {c.status === 'CLOSED' && <button onClick={() => reopenCase(c.id)} className="flex-1 md:flex-none px-4 py-2 bg-blue-50 text-blue-600 font-medium rounded-xl hover:bg-blue-100 transition-colors">Reopen</button>}
                   <button onClick={() => viewCaseDetails(c.id)} className="flex-1 md:flex-none px-4 py-2 bg-slate-800 text-white font-medium rounded-xl hover:bg-slate-700 transition-colors">Details</button>
                 </div>
@@ -2236,7 +2436,7 @@ const UserDashboard = () => {
               </div>
             </div>
             <div className="flex gap-2">
-              {selectedCase.status === 'OPEN' && (
+              {(selectedCase.status === 'OPEN' || selectedCase.status === 'REQUESTED_BY_DOCTOR') && (
                 <button
                   onClick={() => { closeCase(selectedCase.id); setSelectedCase(null); }}
                   className="px-4 py-2 bg-rose-50 text-rose-600 font-medium rounded-xl hover:bg-rose-100 transition-colors text-sm"
@@ -2741,6 +2941,60 @@ const UserDashboard = () => {
           filename={documentViewer.filename}
           onClose={() => setDocumentViewer({ isOpen: false, url: '', filename: '' })}
         />
+      )}
+      
+      {/* Payment Confirmation Modal */}
+      {paymentModal.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-[250] p-4 animate-fade-in" onClick={() => setPaymentModal({ ...paymentModal, isOpen: false })}>
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl relative" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-slate-800">{paymentModal.title}</h3>
+              <button onClick={() => setPaymentModal({ ...paymentModal, isOpen: false })} className="p-1.5 text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full transition-colors"><X size={16} /></button>
+            </div>
+            
+            <div className="space-y-4 mb-6">
+              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 space-y-3">
+                <div>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Details</p>
+                  <p className="text-sm font-semibold text-slate-700 mt-0.5">{paymentModal.description}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-200/60">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Date</p>
+                    <p className="text-sm font-bold text-slate-700 mt-0.5">{paymentModal.date}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Amount to Pay</p>
+                    <p className="text-lg font-extrabold text-blue-600 mt-0.5">₹{paymentModal.amount}</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-blue-50 border border-blue-100 rounded-2xl p-3.5 flex justify-between items-center text-sm">
+                <span className="text-blue-800 font-semibold flex items-center gap-1.5"><Wallet size={16} /> Wallet Balance</span>
+                <span className="text-blue-900 font-bold">₹{wallet.balance}</span>
+              </div>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => setPaymentModal({ ...paymentModal, isOpen: false })}
+                className="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-xl font-semibold hover:bg-slate-200 transition-colors text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  paymentModal.onConfirm();
+                  setPaymentModal({ ...paymentModal, isOpen: false });
+                }}
+                className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md shadow-blue-200 transition-all text-sm"
+              >
+                Confirm & Pay
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       <Chatbot onOpenSettings={() => setActiveTab('chatbot-settings')} />
     </div>
