@@ -3,7 +3,7 @@ from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import ARRAY
-from sqlalchemy import JSON, Column, Integer, ForeignKey, String, Boolean, DateTime, Float, Text, UniqueConstraint, Numeric
+from sqlalchemy import JSON, Column, Integer, ForeignKey, String, Boolean, DateTime, Text, UniqueConstraint, Numeric
 
 class Users(Base):
     __tablename__ = "users"

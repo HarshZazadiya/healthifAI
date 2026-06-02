@@ -149,9 +149,10 @@ export default function Chatbot({ onOpenSettings }) {
     }
   };
 
-  const deleteThread = async (e, threadId) => {
-    e.stopPropagation();
-    if (!window.confirm('Delete this chat history?')) return;
+  const [threadToDelete, setThreadToDelete] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  const deleteThread = async (threadId) => {
     try {
       await api.delete(`/chatbot/threads/${threadId}`);
       if (activeThreadId === threadId) {
@@ -161,6 +162,24 @@ export default function Chatbot({ onOpenSettings }) {
     } catch (error) {
       console.error('Error deleting thread:', error);
     }
+  };
+
+  const confirmDeleteThread = (e, thread) => {
+    e.stopPropagation();
+    setThreadToDelete(thread);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!threadToDelete) return;
+    await deleteThread(threadToDelete.id);
+    setShowDeleteConfirm(false);
+    setThreadToDelete(null);
+  };
+
+  const handleCancelDelete = () => {
+    setShowDeleteConfirm(false);
+    setThreadToDelete(null);
   };
 
   const startRenaming = (e, thread) => {
@@ -448,7 +467,7 @@ export default function Chatbot({ onOpenSettings }) {
                             ✏️
                           </button>
                           <button
-                            onClick={(e) => deleteThread(e, t.id)}
+                            onClick={(e) => confirmDeleteThread(e, t)}
                             className="p-1 hover:text-red-400 hover:bg-slate-700/60 rounded text-[10px]"
                             title="Delete history"
                           >
@@ -755,12 +774,60 @@ export default function Chatbot({ onOpenSettings }) {
         </div>
       )}
       {showLinkModal && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black bg-opacity-70">
-          <div className="bg-slate-900 rounded-lg shadow-xl max-w-3xl w-full h-5/6 relative">
-            <button onClick={() => setShowLinkModal(false)} className="absolute top-2 right-2 text-white hover:text-gray-300 text-xl">
-              ✕
-            </button>
-            <iframe src={linkModalUrl} className="w-full h-full rounded-lg" />
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setShowLinkModal(false); }}
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-[10000] p-4 animate-fade-in cursor-pointer"
+        >
+          <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl relative cursor-default overflow-hidden">
+            <div className="flex justify-between items-center p-4 border-b border-slate-200 bg-slate-50">
+              <div className="min-w-0">
+                <h3 className="font-bold text-slate-800 truncate">Link Preview</h3>
+                <p className="text-xs text-slate-500 truncate">{linkModalUrl}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={linkModalUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-slate-600 hover:text-slate-900 bg-slate-100 px-3 py-2 rounded-2xl border border-slate-200 transition-colors"
+                >
+                  Open in new tab
+                </a>
+                <button onClick={() => setShowLinkModal(false)} className="p-2 text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full transition-colors">
+                  ✕
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-hidden bg-slate-950">
+              <iframe src={linkModalUrl} className="w-full h-full" title="Chatbot link preview" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black bg-opacity-70 px-4 py-6">
+          <div className="bg-slate-900 rounded-3xl shadow-2xl border border-slate-700 max-w-lg w-full overflow-hidden">
+            <div className="p-6 border-b border-slate-800">
+              <h2 className="text-lg font-semibold text-white">Delete chat thread?</h2>
+              <p className="mt-2 text-sm text-slate-400">
+                Are you sure you want to delete <span className="font-semibold text-white">{threadToDelete?.thread_name || 'this chat'}</span>? This action cannot be undone.
+              </p>
+            </div>
+            <div className="p-6 flex flex-col gap-3">
+              <button
+                onClick={handleConfirmDelete}
+                className="w-full px-4 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-2xl text-sm font-semibold transition-all"
+              >
+                Delete thread
+              </button>
+              <button
+                onClick={handleCancelDelete}
+                className="w-full px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-2xl text-sm font-semibold transition-all"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
