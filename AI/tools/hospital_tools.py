@@ -1,17 +1,15 @@
-import os
 from typing import Optional
+from models import Hospitals
 from datetime import datetime
-from langchain_core.tools import tool
 from database import SessionLocal
-from models import Hospitals, Doctors, AssignedDoctors, Wallet
-from utils.helper import bcrypt_context
+from langchain_core.tools import tool
 from services.cases import get_hospitals_cases
 from services.user_service import get_all_users_for_hospital
 from services.wallet import show_doctor_transactions_for_hospital
 from services.appointments import get_all_appointments_for_hospital
 from services.profile import hospital_profile, update_hospital_profile
-from services.availibility import set_availibility_for_doctor, set_limit_for_doctor
 from services.document_handling import get_hospital_policy_for_hospital
+from services.availibility import set_availibility_for_doctor, set_limit_for_doctor
 from services.doctor_service import get_all_doctors_for_hospital, get_doctor_fees_for_hospital, get_doctors_balance_for_hospital
 
 @tool

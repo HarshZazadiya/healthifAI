@@ -1,14 +1,14 @@
-from decimal import Decimal
 import os
 import asyncio
 from typing import List
+from decimal import Decimal
 from typing import Optional
+from datetime import datetime
 from urllib.parse import urljoin
 from database import SessionLocal
-from datetime import datetime
 from fastapi import HTTPException, Query
-from services.notification import create_notification
 from services.payment import handle_payment
+from services.notification import create_notification
 from utils.signed_url_generator import generate_signed_url
 from models import AssignedDoctors, Users, Doctors, Hospitals, Cases, Documents, Symptoms
 
@@ -153,8 +153,7 @@ async def get_users_cases(
             "cases" : result
         }
     except Exception as e :
-        print(e)
-        raise HTTPException(500, "Internal server error")
+        raise HTTPException(detail=str(e), status_code=500)
     finally :
         db.close()
 

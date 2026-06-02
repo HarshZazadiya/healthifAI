@@ -1,18 +1,18 @@
-import datetime
 import os
+import base64
 import shutil
+import chromadb
+import datetime
 import pdfplumber
+import openai, io
 from pathlib import Path
 from logs.logging import logger
-from AI.config.AI_models import embeddings
 from langchain_core.tools import tool
-import chromadb
+from pdf2image import convert_from_path
+from AI.config.AI_models import embeddings
 from chromadb.utils import embedding_functions
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from pdf2image import convert_from_path
-import base64
-import openai, io
 
 # ============================================================
 # CONFIGURATION

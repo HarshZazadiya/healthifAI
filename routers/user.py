@@ -1,5 +1,5 @@
 import os
-from models import  Users
+from models import Users
 from typing import List, Optional
 from services.payment import handle_payment
 from datetime import date, datetime, timezone

@@ -1,8 +1,7 @@
 import asyncio
-
-from models import AssignedDoctors, Doctors
-from fastapi import HTTPException
 from database import SessionLocal
+from fastapi import HTTPException
+from models import AssignedDoctors, Doctors
 from services.notification import create_notification
 
 async def check_or_set_availability(doctor_id : int):

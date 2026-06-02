@@ -1,13 +1,13 @@
 import os
 from typing import Optional
-from langchain_core.tools import tool
 from database import SessionLocal
+from services.wallet import my_wallet
+from langchain_core.tools import tool
 from models import Users, Doctors, Hospitals
 from services.profile import change_password
-from services.wallet import my_wallet, top_up
-from services.notification import create_notification, my_notfications, mark_notifications_as_read
 from services.document_handling import get_document
 
+from services.notification import my_notfications, mark_notifications_as_read
 
 def get_requester_info(db, user_id: int, user_type: str) -> Optional[dict]:
     # Query corresponding table depending on user_type (role)

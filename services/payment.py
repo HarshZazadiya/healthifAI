@@ -3,7 +3,6 @@ import hmac
 import hashlib
 import razorpay
 from decimal import Decimal
-from typing import Optional
 from logs.logging import logger
 from fastapi import HTTPException
 from database import SessionLocal

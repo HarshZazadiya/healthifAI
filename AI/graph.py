@@ -1,5 +1,6 @@
 import os
 import json
+from AI.OCR import ocr_tools
 from logs.logging import logger
 from database import SessionLocal
 from AI.config.AI_models import llm
@@ -72,6 +73,7 @@ async def get_tools_for_role(role: str):
         elif role == "user":
             tools.extend(user_tools)
         tools.extend(default_tools)
+        tools.extend(ocr_tools)
         try:
             mcp_tools = await get_mcp_tools()
             tools.extend(mcp_tools)

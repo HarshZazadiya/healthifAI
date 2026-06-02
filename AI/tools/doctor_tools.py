@@ -1,16 +1,14 @@
-import os
+from models import Doctors
 from typing import Optional
+from database import SessionLocal
 from datetime import datetime, date
 from langchain_core.tools import tool
-from database import SessionLocal
-from models import Doctors
+from services.document_handling import get_hospital_policy
+from services.wallet import change_note, show_doctor_transactions
 from services.profile import doctor_profile, update_doctor_profile
 from services.cases import close_the_case, get_doctors_cases, remove_document_fc
 from services.appointments import cancel_appointment_fc, complete_appointment_fc, get_appointments
 from services.doctor_service import get_assigned_users_of_doctor, get_doctors_under_same_hospital, get_hospital_details
-from services.wallet import change_note, show_doctor_transactions
-from services.document_handling import get_hospital_policy
-
 
 @tool
 async def get_doctor_profile(authenticated_user_id: int) -> dict:

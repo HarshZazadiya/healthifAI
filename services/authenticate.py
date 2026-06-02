@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from utils.helper import bcrypt_context
-from routers.auth import create_access_token
+from utils.jwt_utils import create_access_token
 from models import Users, Doctors, Wallet, Hospitals
 
 async def authenticate_user(email: str, name: str, db: Session):
