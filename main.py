@@ -113,6 +113,40 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan = lifespan)
 
+# Rate Limiter Setup
+from rate_limiter.limiter import limiter
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.errors import RateLimitExceeded
+from fastapi.responses import JSONResponse
+from fastapi import Request
+
+app.state.limiter = limiter
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    logger.warning(f"Rate limit exceeded by {request.client.host if request.client else 'unknown'}: {exc.detail}")
+    response = JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Please try again later.", "error": str(exc.detail)}
+    )
+    try:
+        view_limit = getattr(request.state, "view_rate_limit", None)
+        if view_limit:
+            response = limiter._inject_headers(response, view_limit)
+    except Exception as e:
+        logger.error(f"Error injecting rate limit headers: {e}")
+    return response
+
+class SafeSlowAPIMiddleware(SlowAPIMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        try:
+            return await super().dispatch(request, call_next)
+        except Exception as e:
+            logger.error(f"Unexpected error in SlowAPIMiddleware: {e}", exc_info=True)
+            return await call_next(request)
+
+app.add_middleware(SafeSlowAPIMiddleware)
+
 Base.metadata.create_all(bind = engine)
 
 app.add_middleware(
