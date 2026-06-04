@@ -1,10 +1,10 @@
 from typing import Optional
-from models import DoctorPayments, Doctors, Hospitals
 from database import SessionLocal
 from fastapi import HTTPException
 from datetime import date, datetime
 from models import UserPayments, Wallet
 from services.payment import handle_payment
+from models import DoctorPayments, Doctors, Hospitals
 
 async def my_wallet(owner_id : int, owner_role : str):
     """Get current wallet balance"""
@@ -70,6 +70,15 @@ async def top_up(amount: int, owner_id: int, owner_role : str, owner_type : str)
             )
             if not result:
                 raise HTTPException(status_code = 400, detail = "Payment failed")
+            
+            # For Razorpay payments, we return the order details without adding to the wallet balance yet.
+            return {
+                "id": owner_id,
+                "role": owner_type,
+                "balance": float(wallet.balance),
+                "payment_added": result,
+                "message": "Order created. Proceed to payment verification."
+            }
 
         # Then update wallet balance
         wallet.balance += amount
@@ -79,8 +88,8 @@ async def top_up(amount: int, owner_id: int, owner_role : str, owner_type : str)
         return {
             "id": owner_id,
             "role": owner_type,
-            "balance": wallet.balance,
-            "payment_added": result if result else "No payment added to transactions",
+            "balance": float(wallet.balance),
+            "payment_added": "No payment added to transactions",
             "message": "Wallet topped up successfully"
         }
     except Exception as e:

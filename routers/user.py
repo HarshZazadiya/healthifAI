@@ -1,5 +1,5 @@
 import os
-from models import  Users
+from models import Users
 from typing import List, Optional
 from services.payment import handle_payment
 from datetime import date, datetime, timezone
@@ -181,7 +181,7 @@ async def symptom(request : Symptom_request, user : user_dependency, case_id : O
 
 @router.post("/assign/{doctor_id}", status_code = 200)
 async def assign_doctor(doctor_id : int, user : user_dependency):
-    return await assign_doctor_to_user(doctor_id, user.id, user.role, user.name, doctor_id)
+    return await assign_doctor_to_user(doctor_id, user.id, user.role, user.name)
 
 @router.post("/appointment", status_code=201)
 async def book_appointment(request: AppointmentRequest, user: user_dependency):
@@ -195,10 +195,11 @@ async def book_appointment(request: AppointmentRequest, user: user_dependency):
 async def upgrade_user(user : user_dependency, background_tasks : BackgroundTasks = BackgroundTasks()):
     result = await handle_payment(user.id, user.role, 1, "admin", PRIMIUM_PLAN_FEES, note = f"Buying PREMIUM PLAN", type = "OUTGOING")
     background_tasks.add_task(
-        create_notification,
-        message = f"You have been successfully upgraded to PREMIUM PLAN user", 
-        recipient_id = user.id, 
-        recipient_role = "user"
+        create_notification(
+            message = f"You have been successfully upgraded to PREMIUM PLAN user", 
+            recipient_id = user.id, 
+            recipient_role = "user"
+        )
     )
 
     return result

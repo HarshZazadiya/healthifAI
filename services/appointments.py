@@ -224,7 +224,7 @@ async def cancel_appointment_fc(appointment_id : int, user_id : int, user_name :
             db.refresh(case)
 
             # refund the payment
-            await handle_refund(db, user_id,  user_role,  appointment.doctor_id,  "doctor",  doctor.fees,  note = f"Refund for cancelled appointment of case {case.case_id}")
+            await handle_refund(user_id,  user_role,  appointment.doctor_id,  "doctor",  doctor.fees,  note = f"Refund for cancelled appointment of case {case.case_id}")
 
             # Cancel the appointment
             db.delete(appointment)
@@ -232,9 +232,10 @@ async def cancel_appointment_fc(appointment_id : int, user_id : int, user_name :
 
             asyncio.create_task(
                 create_notification(
-                message = f"user {user_name} has cancelled an appointment {appointment_id} of time {appointment.date}", 
-                recipient_id = appointment.doctor_id, 
-                recipient_role = "doctor")
+                    message = f"user {user_name} has cancelled an appointment {appointment_id} of time {appointment.date}", 
+                    recipient_id = appointment.doctor_id, 
+                    recipient_role = "doctor"
+                )
             )
 
             return {
@@ -268,9 +269,10 @@ async def cancel_appointment_fc(appointment_id : int, user_id : int, user_name :
                 for app in appointments:
                     asyncio.create_task(
                         create_notification(
-                        message = f"Appointment {app.id} of user {app.user_id} has been cancelled by doctor {user_name}", 
-                        recipient_id = app.user_id, 
-                        recipient_role = "user")
+                            message = f"Appointment {app.id} of user {app.user_id} has been cancelled by doctor {user_name}", 
+                            recipient_id = app.user_id, 
+                            recipient_role = "user"
+                        )
                     )
 
                     # remove the price from case's cost
@@ -280,7 +282,7 @@ async def cancel_appointment_fc(appointment_id : int, user_id : int, user_name :
                     db.refresh(case)
                     
                     # refund the payment
-                    await handle_refund(db, app.user_id, "user", doctor.id, "doctor", doctor.appointment_fees, note = f"Refund for cancelled appointment of case {case.case_id}")
+                    await handle_refund(app.user_id, "user", doctor.id, "doctor", doctor.appointment_fees, note = f"Refund for cancelled appointment of case {case.case_id}")
                     
                     # Cancel the appointment
                     app.status = "CANCELLED"

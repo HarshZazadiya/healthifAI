@@ -152,7 +152,7 @@ async def change_fees(doctor : doctor_dependency, feesRequest : feesChangeReques
 # =====================================================================================
 
 @router.delete("/appointment/", status_code = 200)
-async def cancel_appointment(doctor : doctor_dependency, appointment_id : Optional[int] = None, date : Optional[datetime] = None):
+async def cancel_appointment(doctor : doctor_dependency, appointment_id : Optional[int] = None):
     return await cancel_appointment_fc(appointment_id, doctor.id, doctor.name, "doctor", date)
 
 @router.delete("/cases/document", status_code = 200)

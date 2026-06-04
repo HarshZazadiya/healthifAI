@@ -1,5 +1,5 @@
-import mimetypes
 import PyPDF2
+import mimetypes
 from PIL import Image
 from models import Documents
 from logs.logging import logger

@@ -3,7 +3,7 @@ from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import ARRAY
-from sqlalchemy import JSON, Column, Integer, ForeignKey, String, Boolean, DateTime, Float, Text, UniqueConstraint, Numeric
+from sqlalchemy import JSON, Column, Integer, ForeignKey, String, Boolean, DateTime, Text, UniqueConstraint, Numeric
 
 class Users(Base):
     __tablename__ = "users"
@@ -196,6 +196,10 @@ class UserPayments(Base):
     note = Column(String(100), nullable = True)
     type = Column(String(100), nullable = False)
     amount = Column(Numeric(10, 2), nullable = False)
+    razorpay_order_id = Column(String(100), nullable = True)
+    razorpay_payment_id = Column(String(100), nullable = True)
+    razorpay_signature = Column(String(200), nullable = True)
+    payment_status = Column(String(50), nullable = True, default = "pending")
 
 class DoctorPayments(Base):
     __tablename__ = "doctor_payments"
@@ -206,6 +210,10 @@ class DoctorPayments(Base):
     note = Column(String(100), nullable = True)
     type = Column(String(100), nullable = False)
     amount = Column(Numeric(10, 2), nullable = False)
+    razorpay_order_id = Column(String(100), nullable = True)
+    razorpay_payment_id = Column(String(100), nullable = True)
+    razorpay_signature = Column(String(200), nullable = True)
+    payment_status = Column(String(50), nullable = True, default = "pending")
 
 class ChatThread(Base):
     __tablename__ = "chat_threads"

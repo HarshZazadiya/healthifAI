@@ -1,19 +1,19 @@
 import os
 import base64
-from io import BytesIO
 from datetime import datetime
 from pydantic import BaseModel
 from jose import jwt, JWTError
 from logs.logging import logger
 from database import SessionLocal
 from sqlalchemy.orm import Session
-from typing import Annotated, Dict, Optional, Union, Any
+from typing import Dict, Optional, Union, Any
 from urllib.parse import urljoin
 from fastapi.responses import FileResponse
+from rate_limiter.limiter import limiter
 from utils.dependencies import db_dependency
 from services.document_handling import add_document
 from utils.signed_url_generator import generate_signed_url
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, Query
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Query
 from models import Cases, Users, Doctors, ConversationRoom, ConversationMessage, AssignedDoctors, Hospitals, DoctorHospitalConversationRoom, DoctorHospitalConversationMessage, DoctorDoctorConversationRoom, DoctorDoctorConversationMessage
 
 router = APIRouter(
@@ -153,6 +153,7 @@ async def get_token_from_websocket(websocket: WebSocket) -> dict:
 # WEBSOCKET ENDPOINT
 # ============================================
 
+@limiter.exempt
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     # Authenticate
@@ -558,6 +559,7 @@ async def save_file(file_data: str, file_name: str, room_id: int, sender_id: int
 # REST ENDPOINTS
 # ============================================
 
+@limiter.exempt
 @router.get("/rooms", status_code=200)
 async def get_conversation_rooms(
     db: db_dependency,
@@ -742,7 +744,7 @@ async def get_conversation_rooms(
     
     return {"rooms": rooms, "total": len(rooms)}
 
-
+@limiter.exempt
 @router.post("/room", status_code=201)
 async def create_or_get_room(
     db: db_dependency,
@@ -805,7 +807,7 @@ async def create_or_get_room(
     
     return {"room_id": new_room.id, "is_new": True}
 
-
+@limiter.exempt
 @router.post("/room/hospital", status_code=201)
 async def create_or_get_doctor_hospital_room(
     db: db_dependency,
@@ -859,7 +861,7 @@ async def create_or_get_doctor_hospital_room(
     
     return {"room_id": new_room.id, "is_new": True}
 
-
+@limiter.exempt
 @router.post("/room/doctor", status_code=201)
 async def create_or_get_doctor_doctor_room(
     db: db_dependency,
@@ -911,7 +913,7 @@ async def create_or_get_doctor_doctor_room(
     
     return {"room_id": new_room.id, "is_new": True}
 
-
+@limiter.exempt
 @router.get("/messages/{room_id}", status_code=200)
 async def get_conversation_messages(
     db: db_dependency,
@@ -1055,7 +1057,7 @@ async def get_conversation_messages(
         "has_more": len(messages) == limit
     }
 
-
+@limiter.exempt
 @router.get("/uploads/{filename}")
 async def get_uploaded_file(filename: str):
     """Serve uploaded chat files"""
@@ -1064,7 +1066,7 @@ async def get_uploaded_file(filename: str):
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(file_path)
 
-
+@limiter.exempt
 @router.put("/room/{room_id}/close", status_code=200)
 async def close_conversation_room(
     db: db_dependency,
@@ -1104,7 +1106,7 @@ async def close_conversation_room(
     
     return {"message": "Conversation room closed successfully"}
 
-
+@limiter.exempt
 @router.get("/doctors/available", status_code=200)
 async def get_available_doctors_for_chat(db : db_dependency, token: str = Query(...)):
     """Get list of doctors/patients/hospitals available for chat"""

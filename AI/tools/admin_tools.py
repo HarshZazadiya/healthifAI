@@ -1,4 +1,3 @@
-import os
 from typing import Optional
 from datetime import datetime
 from langchain_core.tools import tool
@@ -28,7 +27,7 @@ async def see_profile_admin(authenticated_user_id: int) -> dict:
     Get the authenticated admin's profile details.
 
     Args:
-        authenticated_user_id: The ID of the authenticated admin.
+        authenticated_user_id (int): The ID of the currently authenticated admin. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 1', pass 1).
     """
     try:
         return await see_admin_profile(authenticated_user_id)
@@ -49,12 +48,12 @@ async def see_all_users(
     Get a paginated list of all users in the system (admin view), with optional filters.
 
     Args:
-        page: Page number (starts at 1).
-        limit: Max users to return.
-        name: Filter users by name.
-        email: Filter users by email.
-        account_type: Filter by account type (e.g. 'user', 'doctor', 'hospital').
-        is_active: Filter by active status (e.g. 'True', 'False').
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max users to return.
+        name (str, optional): Optional user name string to filter.
+        email (str, optional): Optional user email string to filter.
+        account_type (str, optional): Optional account type string to filter (e.g. 'user', 'doctor', 'hospital').
+        is_active (str, optional): Optional active status string to filter (e.g. 'True', 'False').
     """
     try:
         return await get_all_users_for_admin(page, limit, name, email, account_type, is_active)
@@ -77,14 +76,14 @@ async def see_all_doctors(
     Get a paginated list of all doctors in the system (admin view), with optional filters.
 
     Args:
-        name: Filter by doctor name.
-        email: Filter by doctor email.
-        speciality: Filter by specialty.
-        rating: Filter by minimum rating.
-        availability: Filter by doctor availability.
-        is_active: Filter by active status.
-        page: Page number (starts at 1).
-        limit: Max doctors to return.
+        name (str, optional): Optional doctor name string to filter.
+        email (str, optional): Optional doctor email string to filter.
+        speciality (str, optional): Optional doctor specialty string to filter.
+        rating (float, optional): Optional minimum doctor rating float to filter (e.g. 1.0 to 5.0).
+        availability (bool, optional): Optional doctor availability boolean to filter.
+        is_active (bool, optional): Optional doctor active status boolean to filter.
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max doctors to return.
     """
     try:
         return await get_all_doctors_for_admin(availability, is_active, page, limit, name, email, speciality, rating)
@@ -108,15 +107,15 @@ async def see_all_hospitals(
     Get a paginated list of all hospitals in the system (admin view), with optional filters.
 
     Args:
-        name: Filter by hospital name.
-        email: Filter by hospital email.
-        city: Filter by hospital city.
-        state: Filter by hospital state.
-        zip_code: Filter by hospital ZIP code.
-        rating: Filter by hospital rating.
-        cases: Filter by hospital cases count.
-        page: Page number (starts at 1).
-        limit: Max hospitals to return.
+        name (str, optional): Optional hospital name string to filter.
+        email (str, optional): Optional hospital email string to filter.
+        city (str, optional): Optional hospital city string to filter.
+        state (str, optional): Optional hospital state string to filter.
+        zip_code (str, optional): Optional hospital ZIP code string to filter.
+        rating (int, optional): Optional minimum hospital rating integer to filter (e.g. 1 to 5).
+        cases (int, optional): Optional cases count filter (integer).
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max hospitals to return.
     """
     try:
         return await get_all_hospitals_for_admin(page, limit, name, email, city, state, zip_code, rating, cases)
@@ -139,14 +138,14 @@ async def see_all_cases(
     Get a paginated list of all cases in the system (admin view), with optional filters.
 
     Args:
-        authenticated_user_id: The ID of the authenticated admin.
-        date_val: Optional filter by case date (YYYY-MM-DD).
-        doctor_name: Optional filter by doctor's name.
-        user_name: Optional filter by user's name.
-        cost: Optional filter by case cost.
-        diesease: Optional filter by disease/symptom.
-        page: Page number (starts at 1).
-        limit: Max cases to return.
+        authenticated_user_id (int): The ID of the currently authenticated admin. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 1', pass 1).
+        date_val (str, optional): Optional case date filter. MUST be an ISO 8601 string format (e.g., 'YYYY-MM-DD').
+        doctor_name (str, optional): Optional doctor's name filter string.
+        user_name (str, optional): Optional user/patient name filter string.
+        cost (float, optional): Optional case cost filter (float).
+        diesease (str, optional): Optional disease/symptom filter string.
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max cases to return.
     """
     try:
         return await get_all_cases_for_admin(authenticated_user_id, page, limit, date_val, doctor_name, user_name, cost, diesease)
@@ -166,11 +165,11 @@ async def see_all_transactions(
     Get all transaction histories across the entire system (admin view), with optional filters.
 
     Args:
-        usertype: Filter by type ('user', 'doctor', or 'all').
-        date_val: Filter by transaction date (YYYY-MM-DD).
-        amount: Filter by exact transaction amount.
-        page: Page number (starts at 1).
-        limit: Max transactions to return.
+        usertype (str, optional): Filter by transaction user type string ('user', 'doctor', or 'all').
+        date_val (str, optional): Optional transaction date filter. MUST be an ISO 8601 string format (e.g., 'YYYY-MM-DD').
+        amount (float, optional): Optional transaction amount filter (float).
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max transactions to return.
     """
     try:
         return await get_all_transactions_for_admin(page, limit, usertype, date_val, amount)
@@ -189,10 +188,10 @@ async def see_all_wallets(
     Get details of all wallets in the system (admin view).
 
     Args:
-        role: Optional role filter (e.g. 'user', 'doctor', 'hospital', 'admin').
-        amount: Optional balance amount filter.
-        page: Page number (starts at 1).
-        limit: Max wallets to return.
+        role (str, optional): Optional role string to filter by (e.g. 'user', 'doctor', 'hospital', 'admin').
+        amount (int, optional): Optional wallet balance amount to filter by (integer).
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max wallets to return.
     """
     try:
         return await get_all_wallets_for_admin(page, limit, role, amount)
@@ -209,8 +208,8 @@ async def see_hospital_policy_admin(
     Get policy details of a specific hospital or all hospitals in the system (admin view).
 
     Args:
-        authenticated_user_id: The ID of the authenticated admin.
-        hospital_id: Optional hospital ID to filter by.
+        authenticated_user_id (int): The ID of the currently authenticated admin. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 1', pass 1).
+        hospital_id (int, optional): Optional hospital ID to filter by. To obtain a hospital ID, search for hospitals first.
     """
     try:
         return await get_hospital_policy_for_admin(authenticated_user_id, hospital_id)
@@ -228,9 +227,9 @@ async def send_notification_admin(
     Send an administrative notification to a specific user, doctor, or hospital.
 
     Args:
-        recipient_id: The ID of the recipient.
-        recipient_role: Role of the recipient (e.g., 'user', 'doctor', 'hospital').
-        message: The message body to send.
+        recipient_id (int): The ID of the recipient user/doctor/hospital. To find recipient IDs, search users, doctors, or hospitals first.
+        recipient_role (str): Role of the recipient (e.g., 'user', 'doctor', 'hospital').
+        message (str): The message body string to send. Must be a non-empty string.
     """
     try:
         return await send_notification_as_admin(message, recipient_id, recipient_role)
@@ -248,9 +247,9 @@ async def send_global_notification_admin(
     Send a global administrative/system notification using standard create notification handler.
 
     Args:
-        receiver_id: The ID of the receiver.
-        receiver_role: The role of the receiver ('user', 'doctor', or 'hospital').
-        message: The message body to send.
+        receiver_id (int): The ID of the receiver user/doctor/hospital. To find receiver IDs, search users, doctors, or hospitals first.
+        receiver_role (str): The role of the receiver ('user', 'doctor', or 'hospital').
+        message (str): The message body string to send. Must be a non-empty string.
     """
     try:
         return await create_notification(message, receiver_id, receiver_role)
@@ -269,10 +268,10 @@ async def update_admin_profile_details(
     Update the authenticated admin's profile information.
 
     Args:
-        authenticated_user_id: The ID of the authenticated admin.
-        name: New admin name.
-        email: New admin email.
-        phone_number: New admin phone number.
+        authenticated_user_id (int): The ID of the currently authenticated admin. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 1', pass 1).
+        name (str): New admin name. Must be a non-empty string.
+        email (str): New admin email address string.
+        phone_number (str): New admin phone number string.
     """
     try:
         return await update_admin_profile(authenticated_user_id, name, email, phone_number)
@@ -283,10 +282,10 @@ async def update_admin_profile_details(
 @tool
 async def reactivate_user(user_id: int) -> dict:
     """
-    Reactivate a deactivated user account.
+    Reactivate a deactivated user/patient account.
 
     Args:
-        user_id: The ID of the user to reactivate.
+        user_id (int): The ID of the user/patient to reactivate. To find user IDs, query users first.
     """
     try:
         return await reactivate_user_as_admin(user_id)
@@ -300,7 +299,7 @@ async def reactivate_doctor(doctor_id: int) -> dict:
     Reactivate a deactivated doctor account.
 
     Args:
-        doctor_id: The ID of the doctor to reactivate.
+        doctor_id (int): The ID of the doctor to reactivate. To find doctor IDs, query doctors first.
     """
     try:
         return await reactivate_doctor_as_admin(doctor_id)
@@ -314,7 +313,7 @@ async def reactivate_hospital(hospital_id: int) -> dict:
     Reactivate a deactivated hospital account.
 
     Args:
-        hospital_id: The ID of the hospital to reactivate.
+        hospital_id (int): The ID of the hospital to reactivate. To find hospital IDs, query hospitals first.
     """
     try:
         return await reactivate_hospital_as_admin(hospital_id)
@@ -325,10 +324,10 @@ async def reactivate_hospital(hospital_id: int) -> dict:
 @tool
 async def delete_user(user_id: int) -> dict:
     """
-    Deactivate/delete a user account from the system.
+    Deactivate/delete a user/patient account from the system.
 
     Args:
-        user_id: The ID of the user to deactivate/delete.
+        user_id (int): The ID of the user/patient to deactivate/delete. To find user IDs, query users first.
     """
     try:
         return await delete_user_as_admin(user_id)
@@ -342,7 +341,7 @@ async def delete_doctor(doctor_id: int) -> dict:
     Deactivate/delete a doctor account from the system.
 
     Args:
-        doctor_id: The ID of the doctor to deactivate/delete.
+        doctor_id (int): The ID of the doctor to deactivate/delete. To find doctor IDs, query doctors first.
     """
     try:
         return await delete_doctor_as_admin(doctor_id)
@@ -356,7 +355,7 @@ async def delete_hospital(hospital_id: int) -> dict:
     Deactivate/delete a hospital account from the system.
 
     Args:
-        hospital_id: The ID of the hospital to deactivate/delete.
+        hospital_id (int): The ID of the hospital to deactivate/delete. To find hospital IDs, query hospitals first.
     """
     try:
         return await delete_hospital_as_admin(hospital_id)

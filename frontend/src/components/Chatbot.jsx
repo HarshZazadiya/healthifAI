@@ -4,19 +4,21 @@ import remarkGfm from 'remark-gfm';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
+const formatMessageLinks = (content) => {
+  if (!content) return '';
+  const htmlLinkRegex = /<a\s+href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gi;
+  return content.replace(htmlLinkRegex, '[$2]($1)');
+};
+
 export default function Chatbot({ onOpenSettings }) {
   const { user } = useAuth();
 
   // Widget visibility states
   const [isOpen, setIsOpen] = useState(false);
-  const [isBubbleVisible, setIsBubbleVisible] = useState(true);
 
   // Modal state for link preview
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [linkModalUrl, setLinkModalUrl] = useState('');
-
-  // Pane navigation: 'chat' or 'settings'
-  const [showSettings, setShowSettings] = useState(false);
 
   // Threads & messages states
   const [threads, setThreads] = useState([]);
@@ -28,13 +30,6 @@ export default function Chatbot({ onOpenSettings }) {
   // Inline rename states
   const [editingThreadId, setEditingThreadId] = useState(null);
   const [editNameText, setEditNameText] = useState('');
-
-  // Settings & tools states
-  const [availableTools, setAvailableTools] = useState([]);
-  const [hitlTools, setHitlTools] = useState([]);
-  const [settingsLoading, setSettingsLoading] = useState(false);
-  const [savingSettings, setSavingSettings] = useState(false);
-  const [saveStatus, setSaveStatus] = useState('');
 
   // Resizable box state (starts at 760px width, 560px height)
   const [boxWidth, setBoxWidth] = useState(760);
@@ -63,12 +58,16 @@ export default function Chatbot({ onOpenSettings }) {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading, hitlRequired]);
 
-  // Fetch available tools and HITL list when settings pane is shown
+  // Listen to global event to toggle chatbot visibility
   useEffect(() => {
-    if (showSettings) {
-      loadHitlSettings();
-    }
-  }, [showSettings]);
+    const handleToggle = () => {
+      setIsOpen(prev => !prev);
+    };
+    window.addEventListener('toggle-chatbot', handleToggle);
+    return () => {
+      window.removeEventListener('toggle-chatbot', handleToggle);
+    };
+  }, []);
 
   const fetchThreads = async () => {
     try {
@@ -79,53 +78,23 @@ export default function Chatbot({ onOpenSettings }) {
     }
   };
 
-  const loadHitlSettings = async () => {
-    setSettingsLoading(true);
-    setSaveStatus('');
-    try {
-      const toolsRes = await api.get('/chatbot/tools');
-      setAvailableTools(toolsRes.data.tools || []);
-
-      const hitlRes = await api.get('/chatbot/settings/hitl');
-      setHitlTools(hitlRes.data.sensitive_tools || []);
-    } catch (error) {
-      console.error('Error loading HITL settings:', error);
-    } finally {
-      setSettingsLoading(false);
-    }
-  };
-
-  const handleToggleTool = (toolName) => {
-    setHitlTools(prev => {
-      if (prev.includes(toolName)) {
-        return prev.filter(t => t !== toolName);
-      } else {
-        return [...prev, toolName];
-      }
-    });
-    setSaveStatus('');
-  };
-
-  const handleSaveSettings = async () => {
-    setSavingSettings(true);
-    setSaveStatus('');
-    try {
-      await api.post('/chatbot/settings/hitl', { tools: hitlTools });
-      setSaveStatus('success');
-      setTimeout(() => setSaveStatus(''), 3000);
-    } catch (error) {
-      console.error('Error saving settings:', error);
-      setSaveStatus('error');
-    } finally {
-      setSavingSettings(false);
-    }
-  };
-
   const startNewChat = () => {
     setActiveThreadId(null);
     setMessages([]);
     setHitlRequired(false);
     setHitlToolsList([]);
+  };
+
+  const handleToolsExecution = (toolsUsed) => {
+    if (toolsUsed && toolsUsed.length > 0) {
+      toolsUsed.forEach(tool => {
+        if (tool.name === 'switch_dashboard_tab' && tool.args && tool.args.tab_name) {
+          window.dispatchEvent(new CustomEvent('navigate-to-tab', { 
+            detail: { tab: tool.args.tab_name } 
+          }));
+        }
+      });
+    }
   };
 
   const selectThread = async (threadId) => {
@@ -149,9 +118,10 @@ export default function Chatbot({ onOpenSettings }) {
     }
   };
 
-  const deleteThread = async (e, threadId) => {
-    e.stopPropagation();
-    if (!window.confirm('Delete this chat history?')) return;
+  const [threadToDelete, setThreadToDelete] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  const deleteThread = async (threadId) => {
     try {
       await api.delete(`/chatbot/threads/${threadId}`);
       if (activeThreadId === threadId) {
@@ -161,6 +131,24 @@ export default function Chatbot({ onOpenSettings }) {
     } catch (error) {
       console.error('Error deleting thread:', error);
     }
+  };
+
+  const confirmDeleteThread = (e, thread) => {
+    e.stopPropagation();
+    setThreadToDelete(thread);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!threadToDelete) return;
+    await deleteThread(threadToDelete.id);
+    setShowDeleteConfirm(false);
+    setThreadToDelete(null);
+  };
+
+  const handleCancelDelete = () => {
+    setShowDeleteConfirm(false);
+    setThreadToDelete(null);
   };
 
   const startRenaming = (e, thread) => {
@@ -199,6 +187,7 @@ export default function Chatbot({ onOpenSettings }) {
       });
 
       const { response: reply, thread_id, hitl_required, hitl_tools, tools_used } = response.data;
+      handleToolsExecution(tools_used);
 
       if (!activeThreadId) {
         setActiveThreadId(thread_id);
@@ -247,6 +236,7 @@ export default function Chatbot({ onOpenSettings }) {
       });
 
       const { response: reply, hitl_required, hitl_tools, tools_used } = response.data;
+      handleToolsExecution(tools_used);
 
       if (hitl_required) {
         setHitlRequired(true);
@@ -334,42 +324,7 @@ export default function Chatbot({ onOpenSettings }) {
         }
       `}} />
 
-      {/* Floating bubble trigger */}
-      {isBubbleVisible && (
-        <div className="fixed bottom-6 right-6 z-[9999] flex items-center space-x-2">
-          <button 
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsBubbleVisible(false);
-            }}
-            className="w-6 h-6 flex items-center justify-center bg-gradient-to-r from-pink-500 to-rose-500 border border-pink-300 rounded-full text-white hover:scale-110 shadow-lg transition-all"
-            title="Hide chat bubble"
-          >
-            ✕
-          </button>
-          
-          <button
-            onClick={() => setIsOpen(!isOpen)}
-            className="flex items-center space-x-2 px-5 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-full shadow-xl hover:scale-105 active:scale-95 transition-all duration-300 font-semibold text-sm border border-emerald-300"
-          >
-            <span className="text-xl animate-pulse">💬</span>
-            <span>Ask HealthifAI</span>
-          </button>
-        </div>
-      )}
 
-      {/* Minimal corner trigger when bubble is hidden */}
-      {!isBubbleVisible && !isOpen && (
-        <button
-          onClick={() => {
-            setIsBubbleVisible(true);
-            setIsOpen(true);
-          }}
-          className="fixed bottom-3 right-3 z-[9999] bg-indigo-650/30 hover:bg-indigo-650/80 text-white text-xs px-2.5 py-1.5 rounded-md shadow-lg opacity-40 hover:opacity-100 transition-all animate-pulse"
-        >
-          💬 Ask AI
-        </button>
-      )}
 
       {/* Primary Adjustable Widget Box */}
       {isOpen && (
@@ -448,7 +403,7 @@ export default function Chatbot({ onOpenSettings }) {
                             ✏️
                           </button>
                           <button
-                            onClick={(e) => deleteThread(e, t.id)}
+                            onClick={(e) => confirmDeleteThread(e, t)}
                             className="p-1 hover:text-red-400 hover:bg-slate-700/60 rounded text-[10px]"
                             title="Delete history"
                           >
@@ -465,302 +420,271 @@ export default function Chatbot({ onOpenSettings }) {
 
           {/* MAIN CONTAINER PANEL */}
           <div className="flex-1 flex flex-col min-w-0 bg-slate-900 relative">
-            
-            {/* PANEL 1: INLINE SETTINGS VIEW */}
-            {showSettings ? (
-              <div className="flex-1 flex flex-col bg-slate-950 overflow-hidden relative">
-                {/* Settings Header */}
-                <div className="h-16 border-b border-slate-800 flex items-center justify-between px-6 flex-shrink-0 bg-slate-950">
-                  <div className="flex items-center space-x-2">
-                    <button 
-                      onClick={() => {
-                        setShowSettings(false);
-                        setSaveStatus('');
-                      }} 
-                      className="px-3 py-1.5 bg-slate-900 hover:bg-slate-850 border border-slate-800 rounded-lg text-slate-400 hover:text-white text-[10px] font-semibold transition-all"
-                    >
-                      ← Back to Chat
-                    </button>
-                    <span className="text-sm font-semibold text-white">HITL Agent Settings</span>
-                  </div>
-                  
-                  <button
-                    onClick={handleSaveSettings}
-                    disabled={savingSettings}
-                    className="px-4 py-1.5 bg-indigo-650 hover:bg-indigo-600 text-white rounded-lg text-xs font-semibold shadow transition-all disabled:opacity-40"
-                  >
-                    {savingSettings ? 'Saving...' : 'Save Configuration'}
-                  </button>
-                </div>
+            {/* Chat Header */}
+            <div className="h-16 border-b border-slate-800 flex items-center justify-between px-6 flex-shrink-0 select-none bg-slate-950/20">
+              <div className="flex flex-col">
+                <span className="text-sm font-semibold flex items-center space-x-1.5 text-white">
+                  <span className="inline-block w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse" />
+                  <span>HealthifAI Co-pilot</span>
+                </span>
+                <span className="text-[10px] text-indigo-400">Powered by LangGraph Agent</span>
+              </div>
 
-                {/* Settings Content scrollable body */}
-                <div className="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-thin">
-                  {saveStatus === 'success' && (
-                    <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400 text-xs font-medium">
-                      ✅ Configuration saved successfully!
-                    </div>
-                  )}
-                  {saveStatus === 'error' && (
-                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs font-medium">
-                      ❌ Failed to save configuration. Please try again.
-                    </div>
-                  )}
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => {
+                    window.open('/chatbot-settings', '_blank');
+                  }}
+                  className="px-3 py-1.5 hover:bg-slate-800 border border-slate-850 rounded-xl text-slate-400 hover:text-white text-xs font-semibold transition-all flex items-center space-x-1.5 shadow-sm"
+                  title="Configure HITL Tools Settings"
+                >
+                  <span>⚙️</span>
+                  <span>Settings</span>
+                </button>
+                
+                <button
+                  onClick={() => setIsOpen(false)}
+                  className="p-2 hover:bg-slate-800 border border-slate-850 rounded-xl text-slate-400 hover:text-white transition-all text-xs"
+                  title="Minimize chat"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
 
-                  <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
-                    <p className="text-[11px] text-slate-400 leading-relaxed">
-                      Toggle switches below to require <strong>Human-in-the-loop (HITL) approval</strong> before the HealthifAI agent runs that specific tool.
+            {/* Chat dialogue body scroll region */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-thin relative bg-slate-900">
+              {messages.length === 0 && (
+                <div className="absolute inset-0 overflow-hidden flex items-center justify-center pointer-events-none z-0">
+                  <div className="absolute w-52 h-52 bg-indigo-650/15 rounded-full bg-orb-1 top-1/4 left-1/4" />
+                  <div className="absolute w-60 h-60 bg-violet-650/15 rounded-full bg-orb-2 bottom-1/4 right-1/4" />
+
+                  <div className="text-center max-w-sm px-6 relative z-10 flex flex-col items-center">
+                    <div className="w-14 h-14 rounded-3xl bg-indigo-650/20 border border-indigo-500/20 flex items-center justify-center text-2xl mb-4 animate-bounce">
+                      🩺
+                    </div>
+                    <h3 className="text-sm font-semibold mb-2 text-white">Healthcare System Agent</h3>
+                    <p className="text-[11px] text-slate-450 leading-relaxed font-normal">
+                      I can help you review patient profiles, locate nearby doctors, query logs, consult hospital policies, manage appointments, and log symptoms natively.
                     </p>
                   </div>
-
-                  {settingsLoading ? (
-                    <div className="flex flex-col items-center justify-center py-10 text-slate-500 text-xs">
-                      <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mb-2" />
-                      <span>Loading available tools...</span>
-                    </div>
-                  ) : availableTools.length === 0 ? (
-                    <div className="p-8 text-center text-xs text-slate-650 italic">No tools available for your user role</div>
-                  ) : (
-                    <div className="space-y-3">
-                      {availableTools.map(t => {
-                        const isHitl = hitlTools.includes(t.name);
-                        return (
-                          <div 
-                            key={t.name}
-                            className={`p-3 border rounded-xl flex items-center justify-between space-x-4 transition-all duration-200 ${
-                              isHitl ? 'bg-slate-900/60 border-indigo-500/30' : 'bg-slate-900/25 border-slate-850 hover:border-slate-800'
-                            }`}
-                          >
-                            <div className="flex-1 min-w-0 pr-2">
-                              <span className="font-mono text-xs font-semibold text-white block truncate">{t.name}</span>
-                              <span className="text-[10px] text-slate-500 block truncate line-clamp-1 mt-0.5">{t.description || 'No description provided.'}</span>
-                            </div>
-
-                            <button
-                              onClick={() => handleToggleTool(t.name)}
-                              className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                                isHitl ? 'bg-indigo-600' : 'bg-slate-800'
-                              }`}
-                            >
-                              <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                                isHitl ? 'translate-x-4' : 'translate-x-0'
-                              }`} />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
                 </div>
-              </div>
-            ) : (
-              
-              /* PANEL 2: STANDARD CHAT DIALOGUE VIEW */
-              <>
-                {/* Chat Header */}
-                <div className="h-16 border-b border-slate-800 flex items-center justify-between px-6 flex-shrink-0 select-none bg-slate-950/20">
-                  <div className="flex flex-col">
-                    <span className="text-sm font-semibold flex items-center space-x-1.5 text-white">
-                      <span className="inline-block w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse" />
-                      <span>HealthifAI Co-pilot</span>
-                    </span>
-                    <span className="text-[10px] text-indigo-400">Powered by LangGraph Agent</span>
-                  </div>
+              )}
 
-                  <div className="flex items-center space-x-3">
-                    <button
-                      onClick={() => {
-                        if (onOpenSettings) {
-                          onOpenSettings();
-                          setIsOpen(false);
-                        } else {
-                          setShowSettings(true);
-                        }
-                      }}
-                      className="px-3 py-1.5 hover:bg-slate-800 border border-slate-850 rounded-xl text-slate-400 hover:text-white text-xs font-semibold transition-all flex items-center space-x-1.5 shadow-sm"
-                      title="Configure HITL Tools Settings"
-                    >
-                      <span>⚙️</span>
-                      <span>Settings</span>
-                    </button>
-                    
-                    <button
-                      onClick={() => setIsOpen(false)}
-                      className="p-2 hover:bg-slate-800 border border-slate-850 rounded-xl text-slate-400 hover:text-white transition-all text-xs"
-                      title="Minimize chat"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-
-                {/* Chat dialogue body scroll region */}
-                <div className="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-thin relative bg-slate-900">
-                  {messages.length === 0 && (
-                    <div className="absolute inset-0 overflow-hidden flex items-center justify-center pointer-events-none z-0">
-                      <div className="absolute w-52 h-52 bg-indigo-650/15 rounded-full bg-orb-1 top-1/4 left-1/4" />
-                      <div className="absolute w-60 h-60 bg-violet-650/15 rounded-full bg-orb-2 bottom-1/4 right-1/4" />
-
-                      <div className="text-center max-w-sm px-6 relative z-10 flex flex-col items-center">
-                        <div className="w-14 h-14 rounded-3xl bg-indigo-650/20 border border-indigo-500/20 flex items-center justify-center text-2xl mb-4 animate-bounce">
-                          🩺
-                        </div>
-                        <h3 className="text-sm font-semibold mb-2 text-white">Healthcare System Agent</h3>
-                        <p className="text-[11px] text-slate-450 leading-relaxed font-normal">
-                          I can help you review patient profiles, locate nearby doctors, query logs, consult hospital policies, manage appointments, and log symptoms natively.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {messages.map((m) => {
-                    const isUser = m.role === 'user';
-                    return (
-                      <div 
-                        key={m.id}
-                        className={`flex flex-col max-w-[85%] relative z-10 ${
-                          isUser ? 'ml-auto items-end' : 'mr-auto items-start'
-                        }`}
-                      >
-                         <div className={`px-5 py-4 rounded-2xl shadow-md text-sm leading-relaxed ${
-                           isUser 
-                             ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white border border-indigo-300 font-medium' 
-                             : 'bg-slate-800 text-slate-100 border border-slate-700 rounded-tl-none font-normal'
-                         }`}
-                         >
-                           {isUser ? (
-                             m.content
-                           ) : (
-                             <ReactMarkdown
-                               remarkPlugins={[remarkGfm]}
-                               components={{
-                                 a: ({ href, children }) => (
-                                   <a
-                                     href="#"
-                                     onClick={(e) => {
-                                       e.preventDefault();
-                                       setLinkModalUrl(href);
-                                       setShowLinkModal(true);
-                                     }}
-                                     className="underline text-indigo-300 hover:text-indigo-100"
-                                   >
-                                     {children}
-                                   </a>
-                                 ),
-                                 table: ({ children }) => (
-                                   <div className="overflow-x-auto my-2">
-                                     <table className="min-w-full border-collapse border border-slate-500 text-xs">
-                                       {children}
-                                     </table>
-                                   </div>
-                                 ),
-                                 th: ({ children }) => (
-                                   <th className="border border-slate-500 px-2 py-1 bg-slate-700 text-slate-200 font-semibold">
-                                     {children}
-                                   </th>
-                                 ),
-                                 td: ({ children }) => (
-                                   <td className="border border-slate-500 px-2 py-1 text-slate-300">
-                                     {children}
-                                   </td>
-                                 ),
-                                 p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                               }}
-                             >
-                               {m.content}
-                             </ReactMarkdown>
-                           )}
-                         </div>
-
-                        {!isUser && m.tools_used && m.tools_used.length > 0 && (
-                          <ToolLogAccordion tools={m.tools_used} />
-                        )}
-                      </div>
-                    );
-                  })}
-
-                  {loading && (
-                    <div className="flex items-center space-x-2 mr-auto bg-slate-855 border border-slate-800 px-4 py-3 rounded-2xl rounded-tl-none max-w-[85%] text-slate-400 text-xs">
-                      <div className="flex space-x-1">
-                        <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                        <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                        <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                      </div>
-                      <span>Thinking...</span>
-                    </div>
-                  )}
-
-                  {hitlRequired && (
-                    <div className="mr-auto bg-slate-900 border border-amber-500/40 rounded-2xl p-5 max-w-[90%] shadow-xl shadow-amber-950/20 relative overflow-hidden animate-pulse">
-                      <div className="absolute top-0 left-0 w-2.5 bottom-0 bg-amber-500" />
-                      <div className="pl-3 flex flex-col space-y-3">
-                        <div className="flex items-center space-x-2">
-                          <span className="text-lg">⚠️</span>
-                          <h4 className="text-sm font-semibold text-amber-400">Approval Required</h4>
-                        </div>
-                        <p className="text-xs text-slate-300">
-                          The Assistant is requesting permission to execute sensitive tool(s):
-                          <span className="block mt-1 font-mono text-amber-300 bg-slate-950 py-1 px-2.5 rounded border border-slate-800 font-bold">
-                            {hitlToolsList.join(', ')}
-                          </span>
-                        </p>
-                        <div className="flex items-center space-x-3 pt-1">
-                          <button
-                            onClick={() => handleHitlApproval(true)}
-                            className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-xs font-semibold transition-all shadow"
-                          >
-                            Approve (Yes)
-                          </button>
-                          <button
-                            onClick={() => handleHitlApproval(false)}
-                            className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs border border-slate-700 transition-all"
-                          >
-                            Deny (No)
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  <div ref={chatBottomRef} />
-                </div>
-
-                {/* Input text form */}
-                <form 
-                  onSubmit={handleSendMessage}
-                  className="p-4 border-t border-slate-800/80 bg-slate-950/40 flex items-center space-x-3 relative z-10"
-                >
-                  <input
-                    type="text"
-                    disabled={loading || hitlRequired}
-                    value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
-                    placeholder={
-                      hitlRequired 
-                        ? "Respond to tool approval request above..." 
-                        : "Ask HealthifAI anything..."
-                    }
-                    className="flex-1 bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500/80 disabled:opacity-50 transition-all"
-                  />
-                  <button
-                    type="submit"
-                    disabled={loading || hitlRequired || !inputText.trim()}
-                    className="px-5 py-3 bg-indigo-650 hover:bg-indigo-550 disabled:opacity-40 disabled:hover:bg-indigo-650 text-white rounded-xl shadow font-semibold text-sm transition-all"
+              {messages.map((m) => {
+                const isUser = m.role === 'user';
+                return (
+                  <div 
+                    key={m.id}
+                    className={`flex flex-col max-w-[85%] min-w-0 relative z-10 ${
+                      isUser ? 'ml-auto items-end' : 'mr-auto items-start'
+                    }`}
                   >
-                    Send
-                  </button>
-                </form>
-              </>
-            )}
+                     <div className={`px-5 py-4 rounded-2xl shadow-md text-sm leading-relaxed break-words whitespace-pre-wrap max-w-full overflow-hidden ${
+                       isUser 
+                         ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white border border-indigo-300 font-medium' 
+                         : 'bg-slate-800 text-slate-100 border border-slate-700 rounded-tl-none font-normal'
+                     }`}
+                     >
+                       {isUser ? (
+                         m.content
+                       ) : (
+                         <ReactMarkdown
+                           remarkPlugins={[remarkGfm]}
+                           components={{
+                             a: ({ href, children }) => (
+                               <a
+                                 href="#"
+                                 onClick={(e) => {
+                                   e.preventDefault();
+                                   setLinkModalUrl(href);
+                                   setShowLinkModal(true);
+                                 }}
+                                 className="underline text-indigo-300 hover:text-indigo-100"
+                               >
+                                 {children}
+                               </a>
+                             ),
+                             table: ({ children }) => (
+                               <div className="overflow-x-auto my-2 max-w-full">
+                                 <table className="min-w-full border-collapse border border-slate-500 text-xs">
+                                   {children}
+                                 </table>
+                               </div>
+                             ),
+                             th: ({ children }) => (
+                               <th className="border border-slate-500 px-2 py-1 bg-slate-700 text-slate-200 font-semibold">
+                                 {children}
+                               </th>
+                             ),
+                             td: ({ children }) => (
+                               <td className="border border-slate-500 px-2 py-1 text-slate-300">
+                                 {children}
+                               </td>
+                             ),
+                             pre: ({ children }) => (
+                               <div className="overflow-x-auto max-w-full my-2 rounded-xl">
+                                 <pre className="bg-slate-950 p-3 text-xs font-mono whitespace-pre-wrap break-all text-indigo-300">
+                                   {children}
+                                 </pre>
+                               </div>
+                             ),
+                             code: ({ inline, className, children, ...props }) => {
+                               const isInline = inline || (!className && typeof children === 'string' && !children.includes('\n'));
+                               return isInline ? (
+                                 <code className="bg-slate-900/80 px-1.5 py-0.5 rounded text-xs font-mono text-pink-400 break-all" {...props}>
+                                   {children}
+                                 </code>
+                               ) : (
+                                 <code className="text-xs font-mono whitespace-pre-wrap break-all text-indigo-300" {...props}>
+                                   {children}
+                                 </code>
+                               );
+                             },
+                             p: ({ children }) => <p className="mb-2 last:mb-0 break-words">{children}</p>,
+                           }}
+                         >
+                           {formatMessageLinks(m.content)}
+                         </ReactMarkdown>
+                       )}
+                     </div>
+
+                    {!isUser && m.tools_used && m.tools_used.length > 0 && (
+                      <ToolLogAccordion tools={m.tools_used} />
+                    )}
+                  </div>
+                );
+              })}
+
+              {loading && (
+                <div className="flex items-center space-x-2 mr-auto bg-slate-855 border border-slate-800 px-4 py-3 rounded-2xl rounded-tl-none max-w-[85%] text-slate-400 text-xs">
+                  <div className="flex space-x-1">
+                    <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                  <span>Thinking...</span>
+                </div>
+              )}
+
+              {hitlRequired && (
+                <div className="mr-auto bg-slate-900 border border-amber-500/40 rounded-2xl p-5 max-w-[90%] shadow-xl shadow-amber-950/20 relative overflow-hidden animate-pulse">
+                  <div className="absolute top-0 left-0 w-2.5 bottom-0 bg-amber-500" />
+                  <div className="pl-3 flex flex-col space-y-3">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-lg">⚠️</span>
+                      <h4 className="text-sm font-semibold text-amber-400">Approval Required</h4>
+                    </div>
+                    <p className="text-xs text-slate-300">
+                      The Assistant is requesting permission to execute sensitive tool(s):
+                      <span className="block mt-1 font-mono text-amber-300 bg-slate-950 py-1 px-2.5 rounded border border-slate-800 font-bold">
+                        {hitlToolsList.join(', ')}
+                      </span>
+                    </p>
+                    <div className="flex items-center space-x-3 pt-1">
+                      <button
+                        onClick={() => handleHitlApproval(true)}
+                        className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-xs font-semibold transition-all shadow"
+                      >
+                        Approve (Yes)
+                      </button>
+                      <button
+                        onClick={() => handleHitlApproval(false)}
+                        className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs border border-slate-700 transition-all"
+                      >
+                        Deny (No)
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div ref={chatBottomRef} />
+            </div>
+
+            {/* Input text form */}
+            <form 
+              onSubmit={handleSendMessage}
+              className="p-4 border-t border-slate-800/80 bg-slate-950/40 flex items-center space-x-3 relative z-10"
+            >
+              <input
+                type="text"
+                disabled={loading || hitlRequired}
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                placeholder={
+                  hitlRequired 
+                    ? "Respond to tool approval request above..." 
+                    : "Ask HealthifAI anything..."
+                }
+                className="flex-1 bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500/80 disabled:opacity-50 transition-all"
+              />
+              <button
+                type="submit"
+                disabled={loading || hitlRequired || !inputText.trim()}
+                className="px-5 py-3 bg-indigo-650 hover:bg-indigo-550 disabled:opacity-40 disabled:hover:bg-indigo-650 text-white rounded-xl shadow font-semibold text-sm transition-all"
+              >
+                Send
+              </button>
+            </form>
           </div>
         </div>
       )}
       {showLinkModal && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black bg-opacity-70">
-          <div className="bg-slate-900 rounded-lg shadow-xl max-w-3xl w-full h-5/6 relative">
-            <button onClick={() => setShowLinkModal(false)} className="absolute top-2 right-2 text-white hover:text-gray-300 text-xl">
-              ✕
-            </button>
-            <iframe src={linkModalUrl} className="w-full h-full rounded-lg" />
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setShowLinkModal(false); }}
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-[10000] p-4 animate-fade-in cursor-pointer"
+        >
+          <div className="bg-white rounded-3xl w-full max-w-6xl h-[85vh] flex flex-col shadow-2xl relative cursor-default overflow-hidden">
+            <div className="flex justify-between items-center p-4 border-b border-slate-200 bg-slate-50">
+              <div className="min-w-0">
+                <h3 className="font-bold text-slate-800 truncate">Link Preview</h3>
+                <p className="text-xs text-slate-500 truncate">{linkModalUrl}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={linkModalUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-slate-600 hover:text-slate-900 bg-slate-100 px-3 py-2 rounded-2xl border border-slate-200 transition-colors"
+                >
+                  Open in new tab
+                </a>
+                <button onClick={() => setShowLinkModal(false)} className="p-2 text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full transition-colors">
+                  ✕
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-hidden bg-slate-950">
+              <iframe src={linkModalUrl} className="w-full h-full" title="Chatbot link preview" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black bg-opacity-70 px-4 py-6">
+          <div className="bg-slate-900 rounded-3xl shadow-2xl border border-slate-700 max-w-lg w-full overflow-hidden">
+            <div className="p-6 border-b border-slate-800">
+              <h2 className="text-lg font-semibold text-white">Delete chat thread?</h2>
+              <p className="mt-2 text-sm text-slate-400">
+                Are you sure you want to delete <span className="font-semibold text-white">{threadToDelete?.thread_name || 'this chat'}</span>? This action cannot be undone.
+              </p>
+            </div>
+            <div className="p-6 flex flex-col gap-3">
+              <button
+                onClick={handleConfirmDelete}
+                className="w-full px-4 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-2xl text-sm font-semibold transition-all"
+              >
+                Delete thread
+              </button>
+              <button
+                onClick={handleCancelDelete}
+                className="w-full px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-2xl text-sm font-semibold transition-all"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

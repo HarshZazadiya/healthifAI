@@ -1,21 +1,25 @@
 import os
-from fastapi.responses import FileResponse
+import json
+from fastapi import Header
 from jose import jwt, JWTError
 from pydantic import BaseModel
+from logs.logging import logger
 from fastapi import BackgroundTasks
-from typing import Annotated, List, Optional
 from passlib.context import CryptContext
-from fastapi.security import OAuth2PasswordBearer
-from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
+from fastapi.responses import FileResponse
+from rate_limiter.limiter import limiter
+from utils.redis_config import redis_client
+from typing import Annotated, List, Optional
 from services.profile import change_password
 from services.wallet import my_wallet, top_up
-from services.notification import create_notification, delete_all_notification, delete_notifications, my_notfications, mark_notifications_as_read
-from services.document_handling import add_document, remove_document, get_document
-from utils.redis_config import redis_client
-from utils.dependencies import requester_dependency, db_dependency, admin_dependency
-from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from fastapi.security import OAuth2PasswordBearer
 from utils.signed_url_generator import verify_signed_url
-from logs.logging import logger
+from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from services.document_handling import add_document, remove_document, get_document
+from utils.dependencies import requester_dependency, db_dependency, admin_dependency
+from services.payment import verify_payment, handle_webhook, verify_webhook_signature
+from services.notification import create_notification, delete_all_notification, delete_notifications, my_notfications, mark_notifications_as_read
 
 router = APIRouter(
     prefix = "/default", 
@@ -30,7 +34,8 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES")
 
-SECRET_SIGN_KEY_FOR_URL = os.getenv("SECRET_SIGN_KEY_FOR_URL", "your-super-secret-key-change-in-production")
+SECRET_SIGN_KEY_FOR_URL = os.getenv("SECRET_SIGN_KEY_FOR_URL")
+
 serializer = URLSafeTimedSerializer(SECRET_SIGN_KEY_FOR_URL)
 
 oauth2_bearer = OAuth2PasswordBearer(tokenUrl = "/auth/token")
@@ -89,7 +94,7 @@ async def top_up_wallet(db: db_dependency, payment_request: PaymentRequest, requ
         raise HTTPException(status_code = 401, detail = "Invalid token")
 
     try:
-        result = await top_up(db, payment_request.amount, owner_id, owner_role, owner_type)
+        result = await top_up(payment_request.amount, owner_id, owner_role, owner_type)
     except Exception as e:
         logger.exception("Unexpected error during top-up")
         raise HTTPException(status_code = 400, detail = str(e))
@@ -103,6 +108,7 @@ async def top_up_wallet(db: db_dependency, payment_request: PaymentRequest, requ
 
     return result
 
+@limiter.exempt
 @router.get("/myWallet")
 async def get_my_wallet(db : db_dependency, token : Annotated[str, Depends(oauth2_bearer)]):
     """Get current wallet balance"""
@@ -135,9 +141,62 @@ async def get_my_wallet(db : db_dependency, token : Annotated[str, Depends(oauth
     return result
 
 # =====================================================================================
+# PAYMENT VERIFICATION
+# =====================================================================================
+
+class PaymentVerificationRequest(BaseModel):
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+@limiter.exempt
+@router.post("/payment/verify", status_code=200)
+async def verify_payment_endpoint(verification_request: PaymentVerificationRequest):
+    """
+    Verify payment after Razorpay redirects user back.
+    Call this endpoint from frontend after successful payment.
+    """
+    try:
+        result = await verify_payment(
+            verification_request.razorpay_order_id,
+            verification_request.razorpay_payment_id,
+            verification_request.razorpay_signature
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Payment verification failed: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@limiter.exempt
+@router.post("/payment/webhook", status_code=200)
+async def payment_webhook(request_body: bytes, x_razorpay_signature: str = Header(...)):
+    """
+    Handle Razorpay webhook events.
+    Supports payment.authorized and payment.failed events.
+    Verifies webhook signature using HMAC-SHA256.
+    """
+    try:
+        # Verify webhook signature
+        webhook_body = request_body.decode('utf-8')
+        if not verify_webhook_signature(webhook_body, x_razorpay_signature):
+            logger.warning("Invalid webhook signature")
+            raise HTTPException(status_code=401, detail="Invalid webhook signature")
+        
+        # Parse webhook event data
+        event_data = json.loads(webhook_body)
+        result = await handle_webhook(event_data)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Webhook handling failed: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+# =====================================================================================
 # DOCUMENTS
 # =====================================================================================
 
+@limiter.exempt
 @router.get("/documents", status_code = 200)
 async def get_documents(requester : requester_dependency, db : db_dependency, limit : int = 20, offset : int = 0, case_id : Optional[int] = None):
     result =  await get_document(requester["id"], requester["role"], limit, offset, case_id)
@@ -157,6 +216,7 @@ async def delete_document(doc_id : int, requester : requester_dependency, db : d
     result = await remove_document(doc_id, requester["id"], requester["role"], requester["name"], force)
     return result
 
+@limiter.exempt
 @router.api_route("/view", methods=["GET", "HEAD"], status_code = 200)
 async def view_file(token: str = Query(...)):
     try:
@@ -223,17 +283,19 @@ async def view_file(token: str = Query(...)):
 # =====================================================================================
 # NOTIFICATIONS
 # =====================================================================================
-
+@limiter.exempt
 @router.post("/notification", status_code = 200)
 async def send_notification(admin : admin_dependency, db : db_dependency, reciever_id : int, reciever_role : str, message : str):
     result = await create_notification(message, reciever_id, reciever_role)
     return result
 
+@limiter.exempt
 @router.get("/notifications", status_code = 200)
 async def get_notifications(requester : requester_dependency, db : db_dependency):
     notifications = await my_notfications(requester["id"], requester["role"])
     return {"notifications" : notifications, "count" : len(notifications)}
 
+@limiter.exempt
 @router.put("/notification", status_code = 200)
 async def mark_notification_as_read(requester : requester_dependency, db : db_dependency, notification_id : Optional[int] = None):
     if notification_id :
@@ -247,6 +309,7 @@ async def mark_notification_as_read(requester : requester_dependency, db : db_de
         raise HTTPException(status_code = 404, detail = "Notification not found")
     return result
     
+@limiter.exempt
 @router.delete("/notification/{notification_id}", status_code = 200)
 async def delete_notification(requester : requester_dependency, db : db_dependency, notification_id : Optional[int]) :
     if notification_id :

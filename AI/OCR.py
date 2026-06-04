@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from langchain_community.tools import tool
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.agents import AgentType
+
 # def scan_prescription(image_path):
 #     img = cv2.imread(image_path)
 
@@ -48,7 +48,17 @@ client = ChatGroq(
 )
 
 @tool
-def ocr_image(image_path):
+def ocr_image(image_path : str):
+    """
+    This tool calls a vLLM and extracts text from given image.
+    this tool is useful for extracting text from images.
+
+    ARGS :
+    image_path : str [required] -> path of the image
+
+    Returns :
+    the extracted text from image, which maybe gibberish/noisy
+    """
     with open(image_path, "rb") as image_file:
         encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
         # make a new file and print the encoded_string inside it
@@ -86,10 +96,10 @@ def ocr_image(image_path):
     response = client.invoke([system_prompt]+[message])
     return response.content
 
-if __name__ == "__main__":
-    image_path = "local_mcp/file_handle/workspace/doc.png"
-    extracted_text = ocr_image(image_path)
-    print(extracted_text)
+# if __name__ == "__main__":
+#     image_path = "local_mcp/file_handle/workspace/doc.png"
+#     extracted_text = ocr_image(image_path)
+#     print(extracted_text)
 
 
 # LANGCHAIN GEMMA-4 E2B
@@ -124,3 +134,7 @@ if __name__ == "__main__":
 # if __name__ == "__main__":
 #     answer = ask_about_image("scanned_output.png", "Extract all the text from image, Never make anything yourself, only extract what is written in the image. It is critical for user, so if you can't read or understand the text, just say 'Unable to read the text' All data should be extracted don't leave out anything. things like 1-0-1 are all dosage like 1 at morning, 0 at afternoon and 1 at night. If there is any text that looks like dosage or days to take the medicine, extract it and list it along with the medicine name.")
 #     print(answer)
+
+ocr_tools = [
+    ocr_image
+]

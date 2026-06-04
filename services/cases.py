@@ -1,14 +1,14 @@
-from decimal import Decimal
 import os
 import asyncio
 from typing import List
+from decimal import Decimal
 from typing import Optional
+from datetime import datetime
 from urllib.parse import urljoin
 from database import SessionLocal
-from datetime import datetime
 from fastapi import HTTPException, Query
-from services.notification import create_notification
 from services.payment import handle_payment
+from services.notification import create_notification
 from utils.signed_url_generator import generate_signed_url
 from models import AssignedDoctors, Users, Doctors, Hospitals, Cases, Documents, Symptoms
 
@@ -153,8 +153,7 @@ async def get_users_cases(
             "cases" : result
         }
     except Exception as e :
-        print(e)
-        raise HTTPException(500, "Internal server error")
+        raise HTTPException(detail=str(e), status_code=500)
     finally :
         db.close()
 
@@ -646,8 +645,11 @@ async def close_the_case(case_id : int, user_id : int, user_name : str, user_rol
             # if case is not found then throw an error
             if not case:
                 raise HTTPException(status_code = 404, detail = "Case not found, Maybe its already closed")
+            
+            close = 0
             if case.status == "REQUESTED_BY_USER":
                 case.status = "CLOSED"
+                close = 1
                 asyncio.create_task(
                     create_notification(
                     message = f"Your case with case_id {case.case_id} has been closed by doctor {user_name}", 
@@ -665,6 +667,13 @@ async def close_the_case(case_id : int, user_id : int, user_name : str, user_rol
             # if case is not in requested by user or open then throw an erro [NOTE  : the close status is already checked when querying the DB.]
             elif case.status not in ["REQUESTED_BY_USER", "OPEN"]:
                 raise HTTPException(status_code = 400, detail = "Invalid status")
+            
+            # deassign the doctor if case got closed
+            if close == 1:
+                assigned = db.query(AssignedDoctors).filter(AssignedDoctors.user_id == case.user_id, AssignedDoctors.doctor_id == case.doctor_id).first()
+                if assigned:
+                    db.delete(assigned)
+            
             case.last_updated = datetime.now()
             db.commit()
             db.refresh(case)
@@ -673,7 +682,7 @@ async def close_the_case(case_id : int, user_id : int, user_name : str, user_rol
                 "case_id" : case.case_id,
                 "status" : case.status,
                 "total_cost" : case.cost,
-                "note" : "Case closed successfully"
+                "note" : "Case closed successfully" if case.status == "CLOSED" else "Case closure requested successfully"
             }
         except Exception as e:
             raise HTTPException(500, str(e))
@@ -776,10 +785,11 @@ async def case_reopen(case_id : int, user_id : int, user_role : str, user_name :
         db.refresh(case)
 
         asyncio.create_task(
-            create_notification,
-            message = f"Your case with case_id {case.case_id} has been reopened by user {user_name}", 
-            recipient_id = case.doctor_id, 
-            recipient_role = "doctor"
+            create_notification(
+                message = f"Your case with case_id {case.case_id} has been reopened by user {user_name}", 
+                recipient_id = case.doctor_id, 
+                recipient_role = "doctor"
+            )
         )
         return {
             "note" : "Case reopened successfully",

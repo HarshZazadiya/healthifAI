@@ -1,8 +1,7 @@
-import os
-from langchain_groq import ChatGroq
+from logs.logging import logger
 from AI.config.state import AgentState
-from langgraph.graph import StateGraph, START, END
 from AI.config.AI_models import summary_llm
+from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import HumanMessage, AIMessage, RemoveMessage, SystemMessage
 
 prompt = """
@@ -46,10 +45,10 @@ async def summarizer_node(state: AgentState):
         system_prompt = prompt.format(messages=messages_text, summary=summary)
         result = await summary_llm.ainvoke(system_prompt)
         new_summary = result.content
-        print("="*60)
-        print(f"📝 Generated new summary ({len(to_summarize)} messages summarized)")
-        print(f"📝 New summary: {new_summary}")
-        print("="*60)
+        logger.info("="*60)
+        logger.info(f"Generated new summary ({len(to_summarize)} messages summarized)")
+        logger.info(f"New summary: {new_summary}")
+        logger.info("="*60)
         # Create RemoveMessage for each old message
         messages_to_remove = [RemoveMessage(id = msg.id) for msg in to_summarize if hasattr(msg, 'id')]
         
@@ -62,7 +61,7 @@ async def summarizer_node(state: AgentState):
             "messages" : [summary_message] + recent_messages + messages_to_remove
         }
     else:
-        print(f"ℹ️ Not enough messages to summarize (have {len(messages)}, need > {RECENT_KEEP})")
+        logger.info(f"Not enough messages to summarize (have {len(messages)}, need > {RECENT_KEEP})")
         return state
 
 

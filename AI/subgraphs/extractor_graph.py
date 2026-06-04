@@ -1,14 +1,13 @@
-import os
 from models import Memories
+from AI.RAG import embeddings
 from pydantic import BaseModel
-from AI.config.state import AgentState
+from logs.logging import logger
 from typing import List, Literal
 from database import SessionLocal
-from langchain_groq import ChatGroq
+from AI.config.state import AgentState
+from AI.config.AI_models import extractor_llm
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import HumanMessage, AIMessage
-from AI.RAG import embeddings
-from AI.config.AI_models import extractor_llm
 
 # ============================================================
 # PROMPT - FIXED: Using a raw string to avoid formatting issues
@@ -77,7 +76,7 @@ async def memory_saver(user_info, memories: List[MemoryItem]):
                 existing.value = memory.value
                 existing.type = memory.type
                 existing.embedding = memory_embedding  # Update embedding too
-                print(f"🔄 Updated memory: {memory.key} = {memory.value}")
+                logger.info(f"Updated memory : {memory.key} = {memory.value}")
             else:
                 # insert new memory with embedding
                 db.add(Memories(
@@ -88,13 +87,13 @@ async def memory_saver(user_info, memories: List[MemoryItem]):
                     value = memory.value,
                     embedding = memory_embedding  # Add the embedding here
                 ))
-                print(f"✅ Added memory: {memory.key} = {memory.value}")
+                logger.info(f"Added memory: {memory.key} = {memory.value}")
 
         db.commit()
-        print(f"📝 Saved {len(memories)} memories")
+        logger.info(f"Saved {len(memories)} memories")
 
     except Exception as e:
-        print(f"❌ Error saving memories: {e}")
+        logger.info(f"Error saving memories: {e}")
         db.rollback()
     finally:
         db.close()
@@ -119,7 +118,7 @@ async def extractor_node(state: AgentState) -> AgentState:
         conversation = "\n".join(conversation_lines)
         
         if not conversation:
-            print("⚠️ No conversation to extract from")
+            logger.info("No conversation to extract from")
             return state
 
         # Format prompt - using simple string replacement
@@ -131,14 +130,14 @@ async def extractor_node(state: AgentState) -> AgentState:
         # Save if we got any memories
         if result and result.memories:
             await memory_saver(user_info, result.memories)
-            print(f"✅ Extracted {len(result.memories)} memories")
-            print(f"📝 Saved {result.memories} memories")
-            print("="*60,end="\n")
+            logger.info(f"Extracted {len(result.memories)} memories")
+            logger.info(f"Saved {result.memories} memories")
+            logger.info("="*60,end="\n")
         else:
-            print("ℹ️ No memories extracted")
+            logger.info("No memories extracted")
 
     except Exception as e:
-        print(f"❌ Error in extractor node: {e}")
+        logger.info(f"Error in extractor node: {e}")
         import traceback
         traceback.print_exc()
     
@@ -168,5 +167,5 @@ async def get_extractor_graph():
     global extractor_graph
     if extractor_graph is None:
         extractor_graph = await build_extractor_graph()
-        print("✅ Extractor graph compiled")
+        logger.info("Extractor graph compiled")
     return extractor_graph

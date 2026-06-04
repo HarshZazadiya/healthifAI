@@ -1,8 +1,7 @@
 import asyncio
-
-from models import AssignedDoctors, Doctors
-from fastapi import HTTPException
 from database import SessionLocal
+from fastapi import HTTPException
+from models import AssignedDoctors, Doctors
 from services.notification import create_notification
 
 async def check_or_set_availability(doctor_id : int):
@@ -50,16 +49,18 @@ async def set_availibility_for_doctor(doctor_id : int, hospital_name : str, avai
         doctor = db.query(Doctors).filter(Doctors.id == doctor_id).first()
         for user in users:
             asyncio.create_task(
-                create_notification,
-                message = f"Your doctor {doctor.name} availibility has been changed to {availability} by hospital {hospital_name}",
-                recipient_id = user.user_id,
-                recipient_role = "user"
+                create_notification(
+                    message = f"Your doctor {doctor.name} availibility has been changed to {availability} by hospital {hospital_name}",
+                    recipient_id = user.user_id,
+                    recipient_role = "user"
+                )
             )
         asyncio.create_task(
-            create_notification,
-            message = f"Your availibility has been changed to {availability} by hospital {hospital_name}",
-            recipient_id = doctor_id,
-            recipient_role = "doctor"
+            create_notification(
+                message = f"Your availibility has been changed to {availability} by hospital {hospital_name}",
+                recipient_id = doctor_id,
+                recipient_role = "doctor"
+            )
         )
         return {
             "note" : f"Availability {doctor.availability} set successfully for doctor {doctor.name}"

@@ -1,11 +1,11 @@
 import os
-from fastapi import Depends, HTTPException
+from typing import Annotated
 from jose import JWTError, jwt
 from database import SessionLocal
-from models import Users, Doctors, Hospitals
-from typing import Annotated, Optional
+from sqlalchemy.orm import Session
 from utils.helper import oauth2_bearer
-from sqlalchemy.orm import Session  
+from fastapi import Depends, HTTPException
+from models import Users, Doctors, Hospitals
 
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
