@@ -13,10 +13,10 @@ from services.doctor_service import get_assigned_users_of_doctor, get_doctors_un
 @tool
 async def get_doctor_profile(authenticated_user_id: int) -> dict:
     """
-    Get the authenticated doctor's profile details.
+    Get the requesting doctor's profile details.
 
     Args:
-        authenticated_user_id: The ID of the authenticated doctor.
+        authenticated_user_id (int): The ID of the currently authenticated doctor. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 5', pass 5).
     """
     try:
         return await doctor_profile(authenticated_user_id)
@@ -26,7 +26,7 @@ async def get_doctor_profile(authenticated_user_id: int) -> dict:
 
 @tool
 async def get_doctor_cases(
-    authenticated_user_id: int,
+    authenticated_doctor_id: int,
     status: Optional[str] = None,
     from_date: Optional[datetime] = None,
     to_date: Optional[datetime] = None,
@@ -39,17 +39,17 @@ async def get_doctor_cases(
     Get cases assigned to the authenticated doctor, optionally filtered by status, dates, user ID, or case ID.
 
     Args:
-        authenticated_user_id: The ID of the authenticated doctor.
-        status: Optional status to filter (e.g. 'OPEN', 'CLOSED').
-        from_date: Filter cases from this date (e.g. YYYY-MM-DD or ISO string).
-        to_date: Filter cases up to this date (e.g. YYYY-MM-DD or ISO string).
-        user_id: Filter by a specific user's ID.
-        case_id: Filter by a specific case ID.
-        page: Page number (starts at 1).
-        limit: Max cases to return.
+        authenticated_doctor_id (int): The ID of the currently authenticated doctor. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 5', pass 5).
+        status (str, optional): Optional status to filter cases (e.g., 'OPEN', 'CLOSED').
+        from_date (str, optional): Optional filter to return cases created on or after this date. MUST be an ISO 8601 string format (e.g., 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:MM:SS').
+        to_date (str, optional): Optional filter to return cases created on or before this date. MUST be an ISO 8601 string format (e.g., 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:MM:SS').
+        user_id (int, optional): Optional patient/user ID filter. To find user/patient IDs, call `get_doctor_assigned_users` first.
+        case_id (int, optional): Optional specific case ID. To find case IDs, call `get_doctor_cases` without filters first.
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max cases to return.
     """
     try:
-        return await get_doctors_cases(authenticated_user_id, status, from_date, to_date, user_id, case_id, page, limit)
+        return await get_doctors_cases(authenticated_doctor_id, status, from_date, to_date, user_id, case_id, page, limit)
     except Exception as e:
         return {"error": str(e)}
 
@@ -66,11 +66,11 @@ async def get_doctor_appointments(
     Get appointments for the authenticated doctor.
 
     Args:
-        authenticated_user_id: The ID of the authenticated doctor.
-        date_val: Optional date (YYYY-MM-DD) to filter appointments.
-        status: Optional status to filter (e.g. 'BOOKED', 'COMPLETED').
-        page: Page number (starts at 1).
-        limit: Max appointments to return.
+        authenticated_user_id (int): The ID of the currently authenticated doctor. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 5', pass 5).
+        date_val (str, optional): Optional date to filter appointments. MUST be an ISO 8601 string format (e.g., 'YYYY-MM-DD').
+        status (str, optional): Optional status to filter (e.g., 'BOOKED', 'COMPLETED', 'CANCELLED').
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max appointments to return.
     """
     try:
         return await get_appointments(authenticated_user_id, "doctor", page, limit, status, date_val)
@@ -86,13 +86,13 @@ async def get_doctor_assigned_users(
     limit: int = 10
 ) -> dict:
     """
-    Get users assigned to the authenticated doctor.
+    Get users/patients assigned to the authenticated doctor.
 
     Args:
-        authenticated_user_id: The ID of the authenticated doctor.
-        user_name: Optional user name filter.
-        page: Page number (starts at 1).
-        limit: Max users to return.
+        authenticated_user_id (int): The ID of the currently authenticated doctor. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 5', pass 5).
+        user_name (str, optional): Optional user/patient name filter.
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max users to return.
     """
     try:
         return await get_assigned_users_of_doctor(authenticated_user_id, page, limit, user_name)
@@ -106,7 +106,7 @@ async def get_doctor_fees(authenticated_user_id: int) -> dict:
     Get current consultation fees and appointment fees for the authenticated doctor.
 
     Args:
-        authenticated_user_id: The ID of the authenticated doctor.
+        authenticated_user_id (int): The ID of the currently authenticated doctor. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 5', pass 5).
     """
     db = SessionLocal()
     try:
@@ -129,7 +129,7 @@ async def get_doctor_hospital_details(authenticated_user_id: int) -> dict:
     Get details of the hospital where the authenticated doctor is practicing.
 
     Args:
-        authenticated_user_id: The ID of the authenticated doctor.
+        authenticated_user_id (int): The ID of the currently authenticated doctor. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 5', pass 5).
     """
     db = SessionLocal()
     try:
@@ -146,10 +146,10 @@ async def get_doctor_hospital_details(authenticated_user_id: int) -> dict:
 @tool
 async def get_doctors_under_same_hospital(authenticated_user_id: int) -> dict:
     """
-    Get all doctors practicing under the same hospital as the authenticated doctor.
+    Get all doctors practicing under the same hospital as the authenticated requesting doctor.
 
     Args:
-        authenticated_user_id: The ID of the authenticated doctor.
+        authenticated_user_id (int): The ID of the currently authenticated doctor. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 5', pass 5).
     """
     try:
         return await get_doctors_under_same_hospital(authenticated_user_id)
@@ -169,11 +169,11 @@ async def get_doctor_transactions(
     Get transaction history for the authenticated doctor.
 
     Args:
-        authenticated_user_id: The ID of the authenticated doctor.
-        type: Optional filter by transaction type (e.g. 'INCOMING', 'OUTGOING').
-        date_val: Optional filter by transaction date (YYYY-MM-DD).
-        page: Page number (starts at 1).
-        limit: Max transactions to return.
+        authenticated_user_id (int): The ID of the currently authenticated doctor. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 5', pass 5).
+        type (str, optional): Optional filter by transaction type (e.g. 'INCOMING', 'OUTGOING').
+        date_val (str, optional): Optional filter by transaction date. MUST be an ISO 8601 string format (e.g., 'YYYY-MM-DD').
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max transactions to return.
     """
     try:
         return await show_doctor_transactions(authenticated_user_id, type, date_val, page, limit)
@@ -187,7 +187,7 @@ async def get_doctor_policy_details(authenticated_user_id: int) -> dict:
     Get the policy details of the hospital where the authenticated doctor practices.
 
     Args:
-        authenticated_user_id: The ID of the authenticated doctor.
+        authenticated_user_id (int): The ID of the currently authenticated doctor. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 5', pass 5).
     """
     db = SessionLocal()
     try:
@@ -210,8 +210,8 @@ async def complete_appointment(
     Mark an appointment as completed.
 
     Args:
-        authenticated_user_id: The ID of the authenticated doctor.
-        appointment_id: The ID of the appointment to complete.
+        authenticated_user_id (int): The ID of the currently authenticated doctor. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 5', pass 5).
+        appointment_id (int): The ID of the appointment to complete. To find a booked appointment ID, first call `get_doctor_appointments(status='BOOKED')`.
     """
     try:
         return await complete_appointment_fc(appointment_id, authenticated_user_id, "doctor")
@@ -228,8 +228,8 @@ async def change_doctor_speciality(
     Update the specialty of the authenticated doctor.
 
     Args:
-        authenticated_user_id: The ID of the authenticated doctor.
-        speciality: The new specialty (e.g. 'Cardiology').
+        authenticated_user_id (int): The ID of the currently authenticated doctor. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 5', pass 5).
+        speciality (str): The new specialty (e.g. 'Cardiology'). Must be a non-empty string.
     """
     db = SessionLocal()
     try:
@@ -262,9 +262,9 @@ async def change_doctor_transaction_note(
     Update/change the description note of a doctor's transaction.
 
     Args:
-        authenticated_user_id: The ID of the authenticated doctor.
-        transaction_id: The ID of the transaction to modify.
-        note: New note description.
+        authenticated_user_id (int): The ID of the currently authenticated doctor. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 5', pass 5).
+        transaction_id (int): The ID of the transaction to modify. To find transaction IDs, call `get_doctor_transactions` first.
+        note (str): New descriptive note text.
     """
     try:
         return await change_note(transaction_id, note, authenticated_user_id)
@@ -281,8 +281,8 @@ async def close_case_by_doctor(
     Close an active case from the doctor's side.
 
     Args:
-        authenticated_user_id: The ID of the authenticated doctor.
-        case_id: The ID of the case to close.
+        authenticated_user_id (int): The ID of the currently authenticated doctor. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 5', pass 5).
+        case_id (int): The ID of the case to close. To find active case IDs assigned to the doctor, first call `get_doctor_cases(status='OPEN')`.
     """
     db = SessionLocal()
     try:
@@ -308,11 +308,11 @@ async def update_doctor_profile_details(
     Update the profile information of the authenticated doctor.
 
     Args:
-        authenticated_user_id: The ID of the authenticated doctor.
-        username: The new username.
-        email: The new email address.
-        speciality: The new specialty.
-        availability: The doctor's availability status.
+        authenticated_user_id (int): The ID of the currently authenticated doctor. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 5', pass 5).
+        username (str, optional): Optional new username string.
+        email (str, optional): Optional new email address string.
+        speciality (str, optional): Optional new specialty string (e.g., 'Dentist').
+        availability (str, optional): Optional availability status string.
     """
     try:
         return await update_doctor_profile(username, email, speciality, availability, authenticated_user_id)
@@ -330,9 +330,9 @@ async def change_doctor_fees(
     Update consultation fees and/or appointment fees for the authenticated doctor. Provide at least one.
 
     Args:
-        authenticated_user_id: The ID of the authenticated doctor.
-        fees: Optional new base consultation fees (non-negative).
-        appointment_fees: Optional new appointment fees (non-negative).
+        authenticated_user_id (int): The ID of the currently authenticated doctor. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 5', pass 5).
+        fees (int, optional): Optional new base consultation fees (must be a non-negative integer).
+        appointment_fees (int, optional): Optional new appointment fees (must be a non-negative integer).
     """
     if fees is None and appointment_fees is None:
         return {"error": "At least one of fees or appointment_fees must be provided"}
@@ -372,9 +372,9 @@ async def cancel_appointment_by_doctor(
     Cancel an appointment from the doctor's side.
 
     Args:
-        authenticated_user_id: The ID of the authenticated doctor.
-        appointment_id: Optional appointment ID to cancel.
-        date_val: Optional appointment date/time (ISO format or YYYY-MM-DD HH:MM:SS).
+        authenticated_user_id (int): The ID of the currently authenticated doctor. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 5', pass 5).
+        appointment_id (int, optional): Optional appointment ID to cancel. To find appointment IDs, call `get_doctor_appointments` first.
+        date_val (str, optional): Optional appointment date/time filter. MUST be an ISO 8601 string format (e.g., 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:MM:SS').
     """
     db = SessionLocal()
     try:
@@ -398,9 +398,9 @@ async def remove_document_from_case_by_doctor(
     Remove a document from a specific case.
 
     Args:
-        authenticated_user_id: The ID of the authenticated doctor.
-        case_id: The ID of the case.
-        document_id: The ID of the document to remove.
+        authenticated_user_id (int): The ID of the currently authenticated doctor. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 5', pass 5).
+        case_id (int): The ID of the case. To find case IDs, call `get_doctor_cases` first.
+        document_id (int): The ID of the document to remove. To find document IDs, call `get_documents` (via default tools) or find documents in cases first.
     """
     db = SessionLocal()
     try:

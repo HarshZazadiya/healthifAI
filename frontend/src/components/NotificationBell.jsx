@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
-import { Bell, Check, CheckCheck, Trash2 } from 'lucide-react';
+import { Bell, Check, CheckCheck, Trash2, MessageCircle } from 'lucide-react';
 
 const NotificationBell = () => {
   const [notifications, setNotifications] = useState([]);
@@ -69,18 +69,33 @@ const NotificationBell = () => {
   const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className="flex items-center gap-3">
+      {/* Chatbot trigger button */}
       <button
-        onClick={() => setShow(!show)}
-        className="relative p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-colors"
+        onClick={() => window.dispatchEvent(new Event('toggle-chatbot'))}
+        className="relative group overflow-hidden px-4 py-2 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-650 hover:from-blue-500 hover:to-purple-700 text-white rounded-full transition-all duration-300 shadow-md hover:shadow-indigo-500/25 hover:scale-105 active:scale-95 flex items-center gap-2 border border-indigo-400/20"
+        title="Ask HealthifAI Assistant"
       >
-        <Bell size={24} />
-        {unreadCount > 0 && (
-          <span className="absolute top-1 right-1 bg-rose-500 text-white font-bold rounded-full text-[10px] w-4 h-4 flex items-center justify-center shadow-sm">
-            {unreadCount > 9 ? '9+' : unreadCount}
-          </span>
-        )}
+        <span className="absolute inset-0 w-full h-full bg-gradient-to-r from-purple-650 via-indigo-650 to-blue-650 opacity-0 group-hover:opacity-100 transition-opacity duration-300 ease-out" />
+        <MessageCircle size={15} className="relative z-10 animate-pulse text-white" />
+        <span className="relative z-10 font-bold text-xs tracking-wider select-none">AI Assistant</span>
+        <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-rose-500 border border-white rounded-full animate-ping" />
+        <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-rose-500 border border-white rounded-full" />
       </button>
+
+      {/* Notification Bell Dropdown */}
+      <div className="relative" ref={dropdownRef}>
+        <button
+          onClick={() => setShow(!show)}
+          className="relative p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-colors"
+        >
+          <Bell size={24} />
+          {unreadCount > 0 && (
+            <span className="absolute top-1 right-1 bg-rose-500 text-white font-bold rounded-full text-[10px] w-4 h-4 flex items-center justify-center shadow-sm">
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
+          )}
+        </button>
       {show && (
         <div className="absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 overflow-hidden animate-fade-in flex flex-col">
           <div className="px-4 py-3 border-b border-slate-100 flex justify-between items-center bg-slate-50">
@@ -129,6 +144,7 @@ const NotificationBell = () => {
         </div>
       )}
     </div>
+  </div>
   );
 };
 

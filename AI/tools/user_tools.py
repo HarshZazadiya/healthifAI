@@ -40,7 +40,7 @@ async def get_user_profile(authenticated_user_id: int) -> dict:
     Get the authenticated user's profile information.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
     """
     try:
         return await user_profile(authenticated_user_id, "user")
@@ -54,9 +54,9 @@ async def update_profile(authenticated_user_id: int, username: Optional[str] = N
     Update the authenticated user's profile. Provide at least one of username or email.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        username: The new username. Don't send empty string.
-        email: The new email address. Don't send empty string.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        username (str, optional): The new username. Must be a non-empty string.
+        email (str, optional): The new email address. Must be a non-empty string.
     """
     try:
         return await update_user_profile(authenticated_user_id, username, email)
@@ -67,13 +67,13 @@ async def update_profile(authenticated_user_id: int, username: Optional[str] = N
 @tool
 async def get_all_available_doctors(page: int = 1, limit: int = 20, doctor_name: Optional[str] = None, hospital_name: Optional[str] = None) -> dict:
     """
-    Get a paginated list of all available doctors, optionally filtered by doctor name or hospital name.
+    Get a paginated list of all available doctors in the system, optionally filtered by doctor name or hospital name.
 
     Args:
-        page: Page number (starts at 1).
-        limit: Max number of items to return.
-        doctor_name: Filter doctors by name.
-        hospital_name: Filter doctors by hospital name.
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max number of items to return.
+        doctor_name (str, optional): Optional doctor name filter.
+        hospital_name (str, optional): Optional hospital name filter.
     """
     try:
         return await get_all_doctors(page, limit, doctor_name, hospital_name)
@@ -87,11 +87,11 @@ async def get_users_doctors(authenticated_user_id: int, page: int = 1, limit: in
     Get a paginated list of doctors currently assigned to the authenticated user.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        page: Page number (starts at 1).
-        limit: Max number of items to return.
-        doctor_name: Filter assigned doctors by name.
-        hospital_name: Filter assigned doctors by hospital name.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max number of items to return.
+        doctor_name (str, optional): Optional doctor name filter.
+        hospital_name (str, optional): Optional hospital name filter.
     """
     try:
         return await get_my_doctors(authenticated_user_id, page, limit, doctor_name, hospital_name)
@@ -104,7 +104,7 @@ async def get_user_cases(
     authenticated_user_id: int,
     status: Optional[str] = None,
     page: int = 1,
-    limit: int = 4,
+    limit: int = 20,
     from_date: Optional[datetime] = None,
     to_date: Optional[datetime] = None,
     doctor_id: Optional[int] = None,
@@ -114,14 +114,14 @@ async def get_user_cases(
     Get cases for the authenticated user, optionally filtered by status, dates, doctor ID, or case ID.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        status: Case status (e.g., 'OPEN', 'CLOSED').
-        page: Page number (starts at 1).
-        limit: Max number of cases to return (default 4).
-        from_date: Filter cases from this date (e.g. YYYY-MM-DD or ISO string).
-        to_date: Filter cases up to this date (e.g. YYYY-MM-DD or ISO string).
-        doctor_id: Filter by a specific doctor ID.
-        case_id: Filter by a specific case ID.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        status (str, optional): Optional case status filter (e.g., 'OPEN', 'CLOSED').
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max number of cases to return (default 20).
+        from_date (str, optional): Optional filter to return cases created on or after this date. MUST be an ISO 8601 string format (e.g., 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:MM:SS').
+        to_date (str, optional): Optional filter to return cases created on or before this date. MUST be an ISO 8601 string format (e.g., 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:MM:SS').
+        doctor_id (int, optional): Optional filter by a specific doctor ID. To find a doctor ID, call `get_users_doctors` or `get_all_available_doctors` first.
+        case_id (int, optional): Optional filter by a specific case ID. To find a case ID, call `get_user_cases` without filters first.
     """
     try:
         return await get_users_cases(authenticated_user_id, status, page, limit, from_date, to_date, doctor_id, case_id)
@@ -142,12 +142,12 @@ async def get_user_appointments(
     Get a list of appointments for the authenticated user.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        authenticated_user_type: The role/type of the user.
-        status: Optional status to filter (e.g., 'BOOKED', 'CANCELLED').
-        date_val: Optional date to filter appointments (YYYY-MM-DD or ISO format).
-        page: Page number (starts at 1).
-        limit: Max number of items to return.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        authenticated_user_type (str): The role of the currently authenticated user. You MUST extract this value from the system prompt's Current User role field (e.g. if the system prompt says 'role: user', pass 'user').
+        status (str, optional): Optional status to filter (e.g., 'BOOKED', 'CANCELLED', 'COMPLETED').
+        date_val (str, optional): Optional date to filter appointments. MUST be an ISO 8601 string format (e.g., 'YYYY-MM-DD').
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max number of items to return.
     """
     try:
         return await get_appointments(authenticated_user_id, authenticated_user_type, page, limit, status, date_val)
@@ -166,10 +166,10 @@ async def get_user_symptoms(
     Get symptoms logged by the authenticated user.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        date_val: Optional date to filter symptoms (YYYY-MM-DD).
-        page: Page number (starts at 1).
-        limit: Max number of symptoms to return.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        date_val (str, optional): Optional date to filter symptoms. MUST be an ISO 8601 string format (e.g., 'YYYY-MM-DD').
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max number of symptoms to return.
     """
     try:
         return await get_symptoms(authenticated_user_id, page, limit, date_val)
@@ -186,8 +186,8 @@ async def get_nearby_doctors(
     Find N nearby doctors based on the user's current location.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        n: Number of nearby doctors to find.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        n (int): Number of nearby doctors to find (must be a positive integer).
     """
     try:
         results = await find_n_nearby_doctors(authenticated_user_id, n)
@@ -208,7 +208,7 @@ async def get_user_location(
     Get the current latitude and longitude location of the authenticated user.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
     """
     db = SessionLocal()
     try:
@@ -239,11 +239,11 @@ async def get_user_transactions(
     Get the transaction history of the authenticated user.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        type: Filter by transaction type (e.g., 'INCOMING', 'OUTGOING', 'TOP-UP').
-        date_val: Filter by transaction date (YYYY-MM-DD).
-        page: Page number (starts at 1).
-        limit: Max transactions to return.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        type (str, optional): Optional filter by transaction type (e.g., 'INCOMING', 'OUTGOING', 'TOP-UP').
+        date_val (str, optional): Optional filter by transaction date. MUST be an ISO 8601 string format (e.g., 'YYYY-MM-DD').
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max transactions to return.
     """
     try:
         return await show_user_transactions(authenticated_user_id, page, limit, type, date_val)
@@ -261,9 +261,9 @@ async def get_hospital_policy_details(
     Get policy details for a hospital.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        authenticated_user_type: The role/type of the user.
-        hospital_id: Optional hospital ID. If not provided, returns default policy details.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        authenticated_user_type (str): The role of the currently authenticated user. You MUST extract this value from the system prompt's Current User role field (e.g. if the system prompt says 'role: user', pass 'user').
+        hospital_id (int, optional): Optional hospital ID filter. To find a hospital ID, search for doctors or hospitals first. If not provided, returns default policy details.
     """
     try:
         return await get_hospital_policy(authenticated_user_id, authenticated_user_type, hospital_id)
@@ -282,10 +282,10 @@ async def add_user_symptom(
     Log a new symptom for the authenticated user, optionally attaching it to an open case.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        symptom: Description of the symptom (e.g. 'fever').
-        severity: Severity rating of the symptom (0 to 10).
-        case_id: Optional case ID to attach this symptom to.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        symptom (str): Description of the symptom (e.g. 'fever', 'headache'). Must be a non-empty string.
+        severity (int): Severity rating of the symptom (integer from 0 to 10).
+        case_id (int, optional): Optional open case ID to attach this symptom to. To find a valid case ID, you MUST first retrieve the cases using `get_user_cases`.
     """
     try:
         return await add_symptom(symptom, severity, authenticated_user_id, case_id)
@@ -302,8 +302,8 @@ async def assign_doctor(
     Assign a doctor to the authenticated user and create a case.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        doctor_id: The ID of the doctor to assign.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        doctor_id (int): The ID of the doctor to assign. To find doctor IDs, call `get_all_available_doctors` or `get_nearby_doctors` first.
     """
     db = SessionLocal()
     try:
@@ -327,9 +327,9 @@ async def book_appointment(
     Book an appointment with a doctor.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        doctor_id: The ID of the doctor.
-        date_val: Proposed appointment date/time (ISO format or YYYY-MM-DD HH:MM:SS in the future).
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        doctor_id (int): The ID of the doctor to book the appointment with. To find doctor IDs, call `get_all_available_doctors` or `get_users_doctors` first.
+        date_val (str): Proposed appointment date/time in the future. MUST be an ISO 8601 string format (e.g., 'YYYY-MM-DDTHH:MM:SS').
     """
     db = SessionLocal()
     try:
@@ -351,7 +351,7 @@ async def upgrade_user(
     Upgrade the authenticated user's plan to PREMIUM. This initiates payment and registers premium access.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
     """
     db = SessionLocal()
     try:
@@ -392,8 +392,8 @@ async def reopen_user_case(
     Reopen a closed case for the authenticated user.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        case_id: The ID of the case to reopen.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        case_id (int): The ID of the case to reopen. To find a closed case ID, first call `get_user_cases(status='CLOSED')`.
     """
     db = SessionLocal()
     try:
@@ -417,9 +417,9 @@ async def add_symptoms_to_case(
     Add a list of symptom IDs to a specific case.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        case_id: The case ID.
-        symptom_ids: List of symptom IDs to add.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        case_id (int): The case ID to add symptoms to. To find open case IDs, first call `get_user_cases(status='OPEN')`.
+        symptom_ids (List[int]): List of symptom IDs to add (list of integers). To find symptom IDs, first call `get_user_symptoms`.
     """
     db = SessionLocal()
     try:
@@ -443,9 +443,9 @@ async def add_documents_to_case(
     Add a list of document IDs to a specific case.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        case_id: The case ID.
-        document_ids: List of document IDs to add.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        case_id (int): The case ID to add documents to. To find open case IDs, first call `get_user_cases(status='OPEN')`.
+        document_ids (List[int]): List of document IDs to add (list of integers). To find document IDs, first call `get_documents`.
     """
     db = SessionLocal()
     try:
@@ -468,8 +468,8 @@ async def close_case(
     Close an active case for the authenticated user.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        case_id: The case ID.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        case_id (int): The case ID to close. To find open case IDs, call `get_user_cases(status='OPEN')` first.
     """
     db = SessionLocal()
     try:
@@ -494,10 +494,10 @@ async def update_symptom(
     Update logged symptom description and/or severity.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        symptom_id: The symptom ID to update.
-        symptom: Updated symptom description.
-        severity: Updated severity rating (0 to 10).
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        symptom_id (int): The symptom ID to update. To find a symptom ID, call `get_user_symptoms` first.
+        symptom (str): Updated symptom description string. Must be a non-empty string.
+        severity (int): Updated severity rating (integer from 0 to 10).
     """
     try:
         return await update_symptom_fc(symptom_id, symptom, severity, authenticated_user_id)
@@ -515,9 +515,9 @@ async def update_appointment(
     Update/reschedule an existing appointment date and time.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        appointment_id: The appointment ID.
-        date_val: Proposed new date/time (ISO format or YYYY-MM-DD HH:MM:SS in the future).
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        appointment_id (int): The appointment ID. To find a booked appointment ID, first call `get_user_appointments(status='BOOKED')`.
+        date_val (str): Proposed new date/time in the future. MUST be an ISO 8601 string format (e.g., 'YYYY-MM-DDTHH:MM:SS').
     """
     db = SessionLocal()
     try:
@@ -541,9 +541,9 @@ async def update_user_location(
     Update the location of the authenticated user with new latitude and longitude.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        latitude: New latitude (-90 to 90).
-        longitude: New longitude (-180 to 180).
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        latitude (float): New latitude coordinate (float between -90 and 90).
+        longitude (float): New longitude coordinate (float between -180 and 180).
     """
     db = SessionLocal()
     try:
@@ -577,9 +577,9 @@ async def change_transaction_note(
     Change the descriptive note of an existing transaction.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        transaction_id: The ID of the transaction.
-        note: New note text.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        transaction_id (int): The ID of the transaction to modify. To find transaction IDs, call `get_user_transactions` first.
+        note (str): New descriptive note text.
     """
     try:
         return await change_note(transaction_id, note, authenticated_user_id)
@@ -597,9 +597,9 @@ async def remove_symptom_from_case(
     Remove a specific symptom from an existing case.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        case_id: The case ID.
-        symptom_id: The symptom ID to remove.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        case_id (int): The case ID. To find case IDs, call `get_user_cases` first.
+        symptom_id (int): The symptom ID to remove. To find symptom IDs, call `get_user_symptoms` first.
     """
     try:
         return await remove_symptom_fc(case_id, symptom_id, authenticated_user_id)
@@ -617,9 +617,9 @@ async def remove_document_from_case(
     Remove a document from a specific case.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        case_id: The case ID.
-        document_id: The document ID to remove.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        case_id (int): The case ID. To find case IDs, call `get_user_cases` first.
+        document_id (int): The document ID to remove. To find document IDs, call `get_documents` first.
     """
     db = SessionLocal()
     try:
@@ -643,9 +643,9 @@ async def delete_symptom(
     Delete a symptom logged by the authenticated user.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        symptom_id: The symptom ID to delete.
-        force: Set to True to force delete even if attached to open cases.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        symptom_id (int): The symptom ID to delete. To find symptom IDs, call `get_user_symptoms` first.
+        force (bool, optional): Set to True to force delete even if attached to open cases.
     """
     db = SessionLocal()
     try:
@@ -668,8 +668,8 @@ async def cancel_appointment(
     Cancel an existing appointment.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
-        appointment_id: The ID of the appointment to cancel.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
+        appointment_id (int): The ID of the appointment to cancel. To find a booked appointment ID, first call `get_user_appointments(status='BOOKED')`.
     """
     db = SessionLocal()
     try:
@@ -691,7 +691,7 @@ async def remove_location(
     Remove location data (latitude/longitude) for the authenticated user.
 
     Args:
-        authenticated_user_id: The ID of the authenticated user.
+        authenticated_user_id (int): The ID of the currently authenticated user. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 34', pass 34).
     """
     db = SessionLocal()
     try:

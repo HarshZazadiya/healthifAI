@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import Chatbot from '../components/Chatbot';
-import ChatbotSettings from './ChatbotSettings';
+
 import api from '../services/api';
 import NotificationBell from '../components/NotificationBell';
 import MapComponent from '../components/MapComponent';
@@ -1104,6 +1104,21 @@ const UserDashboard = () => {
   };
   const [pendingPolicyHospital, setPendingPolicyHospital] = useState(null);
   const [hospitalPolicies, setHospitalPolicies] = useState({});
+
+  useEffect(() => {
+    const handleNavigation = (e) => {
+      const targetTab = e.detail?.tab;
+      if (targetTab) {
+        const exists = tabs.some(t => t.id === targetTab);
+        if (exists) {
+          setActiveTab(targetTab);
+          setPage(1);
+        }
+      }
+    };
+    window.addEventListener('navigate-to-tab', handleNavigation);
+    return () => window.removeEventListener('navigate-to-tab', handleNavigation);
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'policies' && pendingPolicyHospital) {
@@ -2799,7 +2814,6 @@ const UserDashboard = () => {
     { id: 'location', name: 'Location', icon: MapIcon },
     { id: 'chat', name: 'Chat', icon: MessageCircle },
     { id: 'profile', name: 'Profile', icon: User },
-    { id: 'chatbot-settings', name: 'Chatbot Settings', icon: Lock },
   ];
 
   return (
@@ -2886,7 +2900,6 @@ const UserDashboard = () => {
             {activeTab === 'policies' && renderPolicies()}
             {activeTab === 'location' && renderLocation()}
             {activeTab === 'chat' && renderChat()}
-            {activeTab === 'chatbot-settings' && <ChatbotSettings inline={true} onBack={() => setActiveTab('overview')} />}
           </div>
         </main>
       </div>
@@ -2996,7 +3009,7 @@ const UserDashboard = () => {
           </div>
         </div>
       )}
-      <Chatbot onOpenSettings={() => setActiveTab('chatbot-settings')} />
+      <Chatbot />
     </div>
   );
 };

@@ -7,6 +7,7 @@ from logs.logging import logger
 from fastapi import BackgroundTasks
 from passlib.context import CryptContext
 from fastapi.responses import FileResponse
+from rate_limiter.limiter import limiter
 from utils.redis_config import redis_client
 from typing import Annotated, List, Optional
 from services.profile import change_password
@@ -107,6 +108,7 @@ async def top_up_wallet(db: db_dependency, payment_request: PaymentRequest, requ
 
     return result
 
+@limiter.exempt
 @router.get("/myWallet")
 async def get_my_wallet(db : db_dependency, token : Annotated[str, Depends(oauth2_bearer)]):
     """Get current wallet balance"""
@@ -147,6 +149,7 @@ class PaymentVerificationRequest(BaseModel):
     razorpay_payment_id: str
     razorpay_signature: str
 
+@limiter.exempt
 @router.post("/payment/verify", status_code=200)
 async def verify_payment_endpoint(verification_request: PaymentVerificationRequest):
     """
@@ -164,6 +167,7 @@ async def verify_payment_endpoint(verification_request: PaymentVerificationReque
         logger.error(f"Payment verification failed: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
+@limiter.exempt
 @router.post("/payment/webhook", status_code=200)
 async def payment_webhook(request_body: bytes, x_razorpay_signature: str = Header(...)):
     """
@@ -192,6 +196,7 @@ async def payment_webhook(request_body: bytes, x_razorpay_signature: str = Heade
 # DOCUMENTS
 # =====================================================================================
 
+@limiter.exempt
 @router.get("/documents", status_code = 200)
 async def get_documents(requester : requester_dependency, db : db_dependency, limit : int = 20, offset : int = 0, case_id : Optional[int] = None):
     result =  await get_document(requester["id"], requester["role"], limit, offset, case_id)
@@ -211,6 +216,7 @@ async def delete_document(doc_id : int, requester : requester_dependency, db : d
     result = await remove_document(doc_id, requester["id"], requester["role"], requester["name"], force)
     return result
 
+@limiter.exempt
 @router.api_route("/view", methods=["GET", "HEAD"], status_code = 200)
 async def view_file(token: str = Query(...)):
     try:
@@ -277,17 +283,19 @@ async def view_file(token: str = Query(...)):
 # =====================================================================================
 # NOTIFICATIONS
 # =====================================================================================
-
+@limiter.exempt
 @router.post("/notification", status_code = 200)
 async def send_notification(admin : admin_dependency, db : db_dependency, reciever_id : int, reciever_role : str, message : str):
     result = await create_notification(message, reciever_id, reciever_role)
     return result
 
+@limiter.exempt
 @router.get("/notifications", status_code = 200)
 async def get_notifications(requester : requester_dependency, db : db_dependency):
     notifications = await my_notfications(requester["id"], requester["role"])
     return {"notifications" : notifications, "count" : len(notifications)}
 
+@limiter.exempt
 @router.put("/notification", status_code = 200)
 async def mark_notification_as_read(requester : requester_dependency, db : db_dependency, notification_id : Optional[int] = None):
     if notification_id :
@@ -301,6 +309,7 @@ async def mark_notification_as_read(requester : requester_dependency, db : db_de
         raise HTTPException(status_code = 404, detail = "Notification not found")
     return result
     
+@limiter.exempt
 @router.delete("/notification/{notification_id}", status_code = 200)
 async def delete_notification(requester : requester_dependency, db : db_dependency, notification_id : Optional[int]) :
     if notification_id :

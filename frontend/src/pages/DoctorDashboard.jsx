@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import Chatbot from '../components/Chatbot';
-import ChatbotSettings from './ChatbotSettings';
+
 import api from '../services/api';
 import NotificationBell from '../components/NotificationBell';
 import DocumentUploader from '../components/DocumentUploader';
@@ -967,6 +967,23 @@ const DoctorDashboard = () => {
     }
   };
 
+  useEffect(() => {
+    const handleNavigation = (e) => {
+      const targetTab = e.detail?.tab;
+      if (targetTab) {
+        const exists = tabs.some(t => t.id === targetTab);
+        if (exists) {
+          setActiveTab(targetTab);
+          setCasesPage(1);
+          setAppointmentsPage(1);
+          setTransactionsPage(1);
+        }
+      }
+    };
+    window.addEventListener('navigate-to-tab', handleNavigation);
+    return () => window.removeEventListener('navigate-to-tab', handleNavigation);
+  }, []);
+
   // Load hospital and profile on mount
   useEffect(() => {
     loadHospitalData();
@@ -1483,7 +1500,7 @@ const DoctorDashboard = () => {
                   <h3 className="font-bold text-lg text-slate-800 mb-1">{a.username}</h3>
                   <div className="flex items-center gap-1.5 text-slate-500 text-sm mt-2"><Clock size={15} className="text-slate-400" /><span className="font-medium">{new Date(a.date).toLocaleString()}</span></div>
                 </div>
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400"><span>ID: #{a.id}</span>{a.case_number ? (<span className="bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded">Case #{a.case_number}</span>) : (<span className="italic">No linked case</span>)}</div>
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">{a.case_number ? (<span className="bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded">Case #{a.case_number}</span>) : (<span className="italic">No linked case</span>)}</div>
               </div>
             </Card>
           );
@@ -1746,7 +1763,6 @@ const DoctorDashboard = () => {
     { id: 'wallet', name: 'Wallet & Transactions', icon: Wallet },
     { id: 'chat', name: 'Chat', icon: MessageCircle },
     { id: 'profile', name: 'Profile', icon: User },
-    { id: 'chatbot-settings', name: 'Chatbot Settings', icon: Lock },
   ];
 
   return (
@@ -1803,7 +1819,6 @@ const DoctorDashboard = () => {
             {activeTab === 'documents' && renderDocuments()}
             {activeTab === 'policy' && renderPolicy()}
             {activeTab === 'chat' && renderChat()}
-            {activeTab === 'chatbot-settings' && <ChatbotSettings inline={true} onBack={() => setActiveTab('overview')} />}
           </div>
         </main>
       </div>
@@ -1953,7 +1968,7 @@ const DoctorDashboard = () => {
           </div>
         </div>
       )}
-      <Chatbot onOpenSettings={() => setActiveTab('chatbot-settings')} />
+      <Chatbot />
     </div>
   );
 };

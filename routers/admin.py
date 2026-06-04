@@ -113,7 +113,7 @@ async def get_all_wallets(
     return await get_all_wallets_for_admin(page, limit, role, amount)
 
 @router.get("/policy", status_code = 200)
-async def get_hospital_policy(admin : admin_dependency, db : db_dependency, hospital_id : Optional[int] = None):
+async def get_hospital_policy(admin : admin_dependency, hospital_id : Optional[int] = None):
     return await get_hospital_policy_for_admin(admin.id, hospital_id)
 
 # =====================================================================================

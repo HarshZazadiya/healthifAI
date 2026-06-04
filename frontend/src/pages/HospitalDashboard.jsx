@@ -622,6 +622,21 @@ const HospitalDashboard = () => {
   };
 
   useEffect(() => {
+    const handleNavigation = (e) => {
+      const targetTab = e.detail?.tab;
+      if (targetTab) {
+        const exists = tabs.some(t => t.id === targetTab);
+        if (exists) {
+          setActiveTab(targetTab);
+          setPage(1);
+        }
+      }
+    };
+    window.addEventListener('navigate-to-tab', handleNavigation);
+    return () => window.removeEventListener('navigate-to-tab', handleNavigation);
+  }, []);
+
+  useEffect(() => {
     loadProfileData();
   }, []);
 

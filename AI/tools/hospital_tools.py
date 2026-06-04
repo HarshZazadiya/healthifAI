@@ -18,7 +18,7 @@ async def get_hospital_profile(authenticated_user_id: int) -> dict:
     Get the authenticated hospital's profile details.
 
     Args:
-        authenticated_user_id: The ID of the authenticated hospital.
+        authenticated_user_id (int): The ID of the currently authenticated hospital. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 3', pass 3).
     """
     try:
         return await hospital_profile(authenticated_user_id)
@@ -41,14 +41,14 @@ async def get_hospital_doctors(
     Get doctors registered under the authenticated hospital.
 
     Args:
-        authenticated_user_id: The ID of the authenticated hospital.
-        page: Page number (starts at 1).
-        limit: Max doctors to return.
-        rating: Optional rating to filter.
-        email: Optional email to filter.
-        speciality: Optional specialty to filter.
-        name: Optional doctor name to filter.
-        availability: Optional availability status to filter.
+        authenticated_user_id (int): The ID of the currently authenticated hospital. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 3', pass 3).
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max doctors to return.
+        rating (int, optional): Optional minimum rating to filter (integer, e.g. 1 to 5).
+        email (str, optional): Optional email address to filter.
+        speciality (str, optional): Optional specialty description string to filter (e.g., 'Cardiology').
+        name (str, optional): Optional doctor name string to filter.
+        availability (bool, optional): Optional availability status boolean to filter.
     """
     try:
         return await get_all_doctors_for_hospital(authenticated_user_id, page, limit, rating, email, speciality, name, availability)
@@ -69,12 +69,12 @@ async def get_hospital_users(
     Get users linked to/visiting the authenticated hospital.
 
     Args:
-        authenticated_user_id: The ID of the authenticated hospital.
-        page: Page number (starts at 1).
-        limit: Max users to return.
-        status: Optional status to filter.
-        user_name: Optional user name filter.
-        doctor_name: Optional doctor name filter.
+        authenticated_user_id (int): The ID of the currently authenticated hospital. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 3', pass 3).
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max users to return.
+        status (str, optional): Optional status to filter.
+        user_name (str, optional): Optional user/patient name filter.
+        doctor_name (str, optional): Optional doctor name filter.
     """
     try:
         return await get_all_users_for_hospital(authenticated_user_id, page, limit, status, user_name, doctor_name)
@@ -97,14 +97,14 @@ async def get_hospital_cases(
     Get cases handled by the authenticated hospital, with optional filters.
 
     Args:
-        authenticated_user_id: The ID of the authenticated hospital.
-        status: Optional status filter.
-        from_date: Filter cases from this date (e.g. YYYY-MM-DD or ISO string).
-        to_date: Filter cases up to this date (e.g. YYYY-MM-DD or ISO string).
-        doctor_id: Filter by a specific doctor's ID.
-        case_id: Filter by a specific case ID.
-        page: Page number (starts at 1).
-        limit: Max cases to return.
+        authenticated_user_id (int): The ID of the currently authenticated hospital. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 3', pass 3).
+        status (str, optional): Optional status filter (e.g., 'OPEN', 'CLOSED').
+        from_date (str, optional): Optional filter to return cases created on or after this date. MUST be an ISO 8601 string format (e.g., 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:MM:SS').
+        to_date (str, optional): Optional filter to return cases created on or before this date. MUST be an ISO 8601 string format (e.g., 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:MM:SS').
+        doctor_id (int, optional): Optional filter by a specific doctor's ID. To find a doctor ID, call `get_hospital_doctors` first.
+        case_id (int, optional): Optional filter by a specific case ID. To find a case ID, call `get_hospital_cases` without filters first.
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max cases to return.
     """
     try:
         return await get_hospitals_cases(authenticated_user_id, status, from_date, to_date, doctor_id, case_id, page, limit)
@@ -123,10 +123,10 @@ async def get_doctors_balance(
     Get current wallets balance of doctors registered under the authenticated hospital.
 
     Args:
-        authenticated_user_id: The ID of the authenticated hospital.
-        page: Page number (starts at 1).
-        limit: Max doctors to return.
-        doctor_name: Optional doctor name filter.
+        authenticated_user_id (int): The ID of the currently authenticated hospital. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 3', pass 3).
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max doctors to return.
+        doctor_name (str, optional): Optional doctor name filter.
     """
     try:
         return await get_doctors_balance_for_hospital(authenticated_user_id, page, limit, doctor_name)
@@ -140,7 +140,7 @@ async def get_doctor_fees(authenticated_user_id: int) -> dict:
     Get the fees breakdown for doctors in the authenticated hospital.
 
     Args:
-        authenticated_user_id: The ID of the authenticated hospital.
+        authenticated_user_id (int): The ID of the currently authenticated hospital. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 3', pass 3).
     """
     try:
         return await get_doctor_fees_for_hospital(authenticated_user_id)
@@ -154,7 +154,7 @@ async def get_hospital_location(authenticated_user_id: int) -> dict:
     Get the geographic coordinates (latitude and longitude) of the authenticated hospital.
 
     Args:
-        authenticated_user_id: The ID of the authenticated hospital.
+        authenticated_user_id (int): The ID of the currently authenticated hospital. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 3', pass 3).
     """
     db = SessionLocal()
     try:
@@ -174,7 +174,7 @@ async def get_hospital_appointments(authenticated_user_id: int) -> dict:
     Get all appointments registered under the authenticated hospital.
 
     Args:
-        authenticated_user_id: The ID of the authenticated hospital.
+        authenticated_user_id (int): The ID of the currently authenticated hospital. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 3', pass 3).
     """
     try:
         return await get_all_appointments_for_hospital(authenticated_user_id)
@@ -188,7 +188,7 @@ async def get_hospital_policy_details_hospital(authenticated_user_id: int) -> di
     Get the upload policy and signed URL access details for the authenticated hospital.
 
     Args:
-        authenticated_user_id: The ID of the authenticated hospital.
+        authenticated_user_id (int): The ID of the currently authenticated hospital. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 3', pass 3).
     """
     try:
         return await get_hospital_policy_for_hospital(authenticated_user_id)
@@ -209,12 +209,12 @@ async def show_doctor_transactions(
     Show transaction history of doctors registered under the authenticated hospital.
 
     Args:
-        authenticated_user_id: The ID of the authenticated hospital.
-        type: Optional filter by transaction type.
-        date_val: Optional date to filter.
-        page: Page number (starts at 1).
-        limit: Max transactions to return.
-        doctor_name: Optional doctor name filter.
+        authenticated_user_id (int): The ID of the currently authenticated hospital. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 3', pass 3).
+        type (str, optional): Optional filter by transaction type.
+        date_val (str, optional): Optional filter by transaction date. MUST be an ISO 8601 string format (e.g. 'YYYY-MM-DD').
+        page (int): Page number for pagination (starts at 1).
+        limit (int): Max transactions to return.
+        doctor_name (str, optional): Optional doctor name string to filter transactions by.
     """
     try:
         return await show_doctor_transactions_for_hospital(authenticated_user_id, page, limit, type, date_val, doctor_name)
@@ -237,14 +237,14 @@ async def update_hospital_profile_details(
     Update the authenticated hospital's profile details.
 
     Args:
-        authenticated_user_id: The ID of the authenticated hospital.
-        username: The new username.
-        email: The new email address.
-        address: New address.
-        city: New city.
-        state: New state.
-        zip_code: New ZIP code.
-        phone_number: New phone number.
+        authenticated_user_id (int): The ID of the currently authenticated hospital. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 3', pass 3).
+        username (str, optional): Optional new username string.
+        email (str, optional): Optional new email address string.
+        address (str, optional): Optional new address string.
+        city (str, optional): Optional new city string.
+        state (str, optional): Optional new state string.
+        zip_code (str, optional): Optional new ZIP code string.
+        phone_number (str, optional): Optional new phone number string.
     """
     try:
         return await update_hospital_profile(username, email, address, city, state, zip_code, phone_number, authenticated_user_id)
@@ -261,8 +261,8 @@ async def update_charges(
     Update commission charges rate (percentage) of the hospital. Max 50%.
 
     Args:
-        authenticated_user_id: The ID of the authenticated hospital.
-        charges: Percentage of fee deduction/charges (0 to 50).
+        authenticated_user_id (int): The ID of the currently authenticated hospital. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 3', pass 3).
+        charges (float): Percentage of fee deduction/charges (float value between 0.0 and 50.0).
     """
     if charges > 50:
         return {"error": "Hospitals can not take charges more than 50%"}
@@ -298,9 +298,9 @@ async def change_availibility_of_doctor(
     Modify/set the availability status of a practicing doctor registered under the hospital.
 
     Args:
-        authenticated_user_id: The ID of the authenticated hospital.
-        doctor_id: The ID of the doctor.
-        availability: True for available, False for unavailable.
+        authenticated_user_id (int): The ID of the currently authenticated hospital. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 3', pass 3).
+        doctor_id (int): The ID of the doctor to update availability for. To find doctor IDs registered under this hospital, first call `get_hospital_doctors`.
+        availability (bool): True for available, False for unavailable.
     """
     db = SessionLocal()
     try:
@@ -321,12 +321,12 @@ async def change_case_limit(
     limit: int
 ) -> dict:
     """
-    Set/modify the active active cases limit for a doctor registered under the hospital.
+    Set/modify the active cases limit for a doctor registered under the hospital.
 
     Args:
-        authenticated_user_id: The ID of the authenticated hospital.
-        doctor_id: The ID of the doctor.
-        limit: Case limit integer.
+        authenticated_user_id (int): The ID of the currently authenticated hospital. You MUST extract this value from the system prompt's Current User ID field (e.g. if the system prompt says 'ID: 3', pass 3).
+        doctor_id (int): The ID of the doctor to update case limit for. To find doctor IDs registered under this hospital, first call `get_hospital_doctors`.
+        limit (int): Case limit (positive integer).
     """
     db = SessionLocal()
     try:
